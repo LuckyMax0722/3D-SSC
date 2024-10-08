@@ -37,16 +37,13 @@ sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__))))
 from projects.configs.config import CONF
 
 class Depth2Lidar:
-    def __init__(self, dataset, encoder, max_depth, load_ckpt, data_path, test_list, save_dir, sequence):
-        self.encoder = encoder
-        self.max_depth = max_depth
-        self.load_ckpt = load_ckpt
-
+    def __init__(self, dataset, model, data_path, test_list, save_dir, sequence):
         self.calib_dir = data_path
         self.data_path = data_path
         self.save_dir = save_dir
 
         self.sequence = sequence
+        self.model = model
 
         # dataset, dataloader
         KITTIDataset = __datasets__[dataset]
@@ -66,23 +63,6 @@ class Depth2Lidar:
                 self.process_point_cloud(img_path)
 
     def process_point_cloud(self, img_path):
-        # Determine the device to use (CUDA, MPS, or CPU)
-        DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
-
-        # Model configuration based on the chosen encoder
-        model_configs = {
-            'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
-            'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
-            'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
-            'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
-        }
-
-        # Initialize the DepthAnythingV2 model with the specified configuration
-        depth_anything = DepthAnythingV2(**{**model_configs[self.encoder], 'max_depth': self.max_depth})
-        depth_anything.load_state_dict(torch.load(self.load_ckpt, map_location='cpu'))
-        depth_anything = depth_anything.to(DEVICE).eval()
-
-
         # Process each image file
         # Load the image
         color_image = Image.open(img_path).convert('RGB')
@@ -90,7 +70,7 @@ class Depth2Lidar:
 
         # Read the image using OpenCV
         image = cv2.imread(img_path)
-        pred = depth_anything.infer_image(image, height)
+        pred = self.model.infer_image(image, height)
 
         calib_file = '{}/{}.txt'.format(self.calib_dir, 'calib')
         calib = kitti_util.Calibration(calib_file)
@@ -124,6 +104,25 @@ def main():
     dataset = 'kitti'
     encoder = 'vitl'
 
+
+    # model
+    # Determine the device to use (CUDA, MPS, or CPU)
+    DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+
+    # Model configuration based on the chosen encoder
+    model_configs = {
+        'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
+        'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
+        'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
+        'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
+    }
+
+    # Initialize the DepthAnythingV2 model with the specified configuration
+    depth_anything = DepthAnythingV2(**{**model_configs[encoder], 'max_depth': max_depth})
+    depth_anything.load_state_dict(torch.load(load_ckpt, map_location='cpu'))
+    depth_anything = depth_anything.to(DEVICE).eval()
+    
+
     for seq in sequences:
         data_path = os.path.join(CONF.PATH.DATA_DATASETS_SEQUENCES, seq)
         test_list = os.path.join(CONF.PATH.DEPTHANYTHING , 'filenames', (seq + '.txt'))
@@ -131,9 +130,7 @@ def main():
 
         D2L = Depth2Lidar(
             dataset,
-            encoder, 
-            max_depth, 
-            load_ckpt, 
+            depth_anything,
             data_path, 
             test_list, 
             save_dir, 
