@@ -93,6 +93,51 @@ The following script could create depth maps for all sequences:
 ```shell
 ./image2depth.sh
 ```
+
+Then we have the following data:
+```
+./kitti/dataset/
+          └── sequences/
+          │       ├── 00/
+          │       │   ├── poses.txt
+          │       │   ├── calib.txt
+          │       │   ├── image_2/
+          │       │   ├── image_3/
+          │       |   ├── voxels/
+          │       ├── 01/
+          │       ├── 02/
+          │       .
+          │       └── 21/
+          └── labels/
+          │       ├── 00/
+          │       │   ├── 000000_1_1.npy
+          │       │   ├── 000000_1_2.npy
+          │       │   ├── 000005_1_1.npy
+          │       │   ├── 000005_1_2.npy
+          │       ├── 01/
+          │       .
+          │       └── 10/
+          └── sequences_msnet3d_depth/
+                  ├── disparity
+                  │     ├── 00/
+                  │     │   ├── 000000.jpg
+                  │     │   ├── 000001.jpg
+                  │     │   ├── 000002.jpg
+                  │     │   ├── 000003.jpg
+                  │     ├── 01/
+                  │     .
+                  │     ├── 21/
+                  └── sequences
+                        ├── 00/
+                        │   ├ 000000.npy
+                        │   ├ 000001.npy
+                        ├── 01/
+                        ├── 02/
+                        .
+                        └── 21/
+
+```
+
 ## 4. Depth to pseudo point cloud
 The following script could create pseudo point cloud for all sequences:
 

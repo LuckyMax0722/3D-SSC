@@ -1,3 +1,9 @@
+import sys
+from os import path
+sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
+
+from projects.configs.config import CONF
+
 work_dir = ''
 _base_ = [
     '../_base_/default_runtime.py'
@@ -61,7 +67,7 @@ model = dict(
 
 
 dataset_type = 'SemanticKittiDataset'
-data_root = './kitti/'
+data_root = CONF.PATH.DATA + '/'
 file_client_args = dict(backend='disk')
 
 data = dict(

@@ -10,6 +10,12 @@ import io_data as SemanticKittiIO
 import argparse
 import yaml
 
+import sys
+from os import path
+sys.path.append(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
+
+from projects.configs.config import CONF
+
 def _downsample_label(label, voxel_size=(240, 144, 240), downscale=4):
     r"""downsample the labeled data,
     code taken from https://github.com/waterljwant/SSC/blob/master/dataloaders/dataloader.py#L262
@@ -82,18 +88,19 @@ def majority_pooling(grid, k_size=2):
 
 
 
-def main(config):
+def main():
+    kitti_root = CONF.PATH.DATA
+    kitti_preprocess_root = os.path.join(kitti_root, "dataset")
+
     scene_size = (256, 256, 32)
     sequences = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
     remap_lut = SemanticKittiIO._get_remap_lut(
-        os.path.join(
-            "./label/semantic-kitti.yaml",
-        )
+        os.path.join(CONF.PATH.SEMANTICKITTI_YAML)
     )
 
     for sequence in sequences:
         sequence_path = os.path.join(
-            config.kitti_root, "dataset", "sequences", sequence
+            kitti_root, "dataset", "sequences", sequence
         )
         label_paths = sorted(
             glob.glob(os.path.join(sequence_path, "voxels", "*.label"))
@@ -101,7 +108,7 @@ def main(config):
         invalid_paths = sorted(
             glob.glob(os.path.join(sequence_path, "voxels", "*.invalid"))
         )
-        out_dir = os.path.join(config.kitti_preprocess_root, "labels", sequence)
+        out_dir = os.path.join(kitti_preprocess_root, "labels", sequence)
         os.makedirs(out_dir, exist_ok=True)
 
         downscaling = {"1_1": 1, "1_2": 2}
@@ -136,21 +143,4 @@ def main(config):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("./label_preprocess.py")
-    parser.add_argument(
-        '--kitti_root',
-        '-r',
-        type=str,
-        required=True,
-        help='kitti_root',
-    )
-
-    parser.add_argument(
-        '--kitti_preprocess_root',
-        '-p',
-        type=str,
-        required=True,
-        help='kitti_preprocess_root',
-    )
-    config, unparsed = parser.parse_known_args()
-    main(config)
+    main()
