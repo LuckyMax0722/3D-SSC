@@ -55,6 +55,8 @@ Eval SGN with 4 GPUs
 | R50 | Sem.KITTI val/test| SGN-S | 43.60/41.88| 14.55/14.01| 28.2 |[config](./projects/configs/sgn/sgn-S-one-stage-guidance.py) |[model](https://drive.google.com/file/d/1nSh3b69zymabIKmc0L8gGNaEY7RA95T2/view?usp=drive_link)|
 | R50 | KITTI360 val/test| SGN-S |46.13/46.22 |18.29/17.71 | 28.2 | [config](./projects/configs/sgn/sgn-S-one-stage-guidance-kitti360.py) |[model](https://drive.google.com/file/d/1WrvxWCq3EY2zRgLoW6JpLNawyiUr2SdD/view?usp=drive_link)|
 
+
+[resnet50](https://github.com/fregu856/deeplabv3/blob/master/pretrained_models/resnet/resnet50-19c8e357.pth)
 Note that we used the checkpoints that performed best on the validation set during training to evaluate SGN on the test sets for both SemanticKITTI and SSCBench-KITTI-360 datasets.
  
 ## TODO

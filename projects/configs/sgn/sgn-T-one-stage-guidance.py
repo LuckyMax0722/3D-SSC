@@ -24,7 +24,7 @@ _depthmodel_= 'msnet3d'
 
 model = dict(
    type='SGN',
-   pretrained=dict(img='ckpts/resnet50-19c8e357.pth'),
+   pretrained=dict(img=CONF.PATH.CHECKPOINT_RESNET50),
    img_backbone=dict(
        type='ResNet',
        depth=50,
