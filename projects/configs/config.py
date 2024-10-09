@@ -30,3 +30,5 @@ CONF.PATH.SGN_CONFIG = os.path.join(CONF.PATH.BASE, 'projects/configs/sgn/sgn-T-
 CONF.PATH.CHECKPOINT = os.path.join(CONF.PATH.BASE, 'ckpt')
 CONF.PATH.CHECKPOINT_RESNET50 = os.path.join(CONF.PATH.CHECKPOINT, 'resnet50-19c8e357.pth')
 CONF.PATH.CHECKPOINT_SGN = os.path.join(CONF.PATH.CHECKPOINT, 'sgn-t-epoch_25.pth')
+
+CONF.PATH.CHECKPOINT_DA = os.path.join(CONF.PATH.DEPTHANYTHING, 'ckpt', 'depth_anything_v2_metric_vkitti_vitl.pth')
