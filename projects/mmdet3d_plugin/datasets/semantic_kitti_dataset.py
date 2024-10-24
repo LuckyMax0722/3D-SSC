@@ -10,6 +10,18 @@ from torchvision import transforms
 from mmdet.datasets import DATASETS
 from mmcv.parallel import DataContainer as DC
 
+import sys
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
+from projects.configs.config import CONF
+
+
+tv = None
+try:
+    import cumm.tensorview as tv
+except:
+    pass
 
 @DATASETS.register_module()
 class SemanticKittiDataset(Dataset):
@@ -28,6 +40,26 @@ class SemanticKittiDataset(Dataset):
         scale=2
     ):
         super().__init__()
+        
+        point_cloud_range = CONF.KITTI.POINT_CLOUD_RANGE
+        encoding_type = CONF.KITTI.POINT_ENCODING_TYPE
+        feature_list = CONF.KITTI.POINT_FEATURE_LIST
+        voxel_size = CONF.KITTI.VOXEL_SIZE
+        
+        self.point_cloud_range = np.array(point_cloud_range, dtype=np.float32)
+        
+        self.point_feature_encoder = PointFeatureEncoder(
+            encoding_type,
+            feature_list,
+            point_cloud_range=self.point_cloud_range
+        )
+        
+        self.data_processor = DataProcessor(
+            point_cloud_range = point_cloud_range, 
+            num_point_features=self.point_feature_encoder.num_point_features, 
+            voxel_size = voxel_size
+        )
+        
         
         self.data_root = data_root
         self.label_root = os.path.join(preprocess_root, labels_tag)
@@ -407,7 +439,7 @@ class SemanticKittiDataset(Dataset):
             pts = np.fromfile(pts_filename, dtype=np.float32)
             pts = pts.reshape((-1, 4))
             pts = np.matmul(np.matmul(inv(ref), target), pts.T).T
-            pts = pts[:, :3]
+            pts = pts[:, :3]  # (N, 3)
 
             lidar2img_rts.append(lidar2img_rt)
             lidar2cam_rts.append(lidar2cam_rt)
@@ -420,6 +452,33 @@ class SemanticKittiDataset(Dataset):
 
             pts_list.append(pts)
 
+        pts_list = np.concatenate(pts_list)
+        
+        
+        # Lidar_Point_Voxel process
+        zeros_column = np.zeros((pts_list.shape[0], 1))
+        pts_list_4 = np.hstack((pts_list, zeros_column))
+
+        points, use_lead_xyz = self.point_feature_encoder.forward(pts_list_4)
+
+        points = self.data_processor.mask_points(points)
+    
+        if self.split == 'train' or self.split == 'val':
+            points = self.data_processor.shuffle_points(points)
+
+        voxels, coordinates, num_points = self.data_processor.transform_points_to_voxels(points, use_lead_xyz)
+        
+
+        #coordinates[:, [0, 2]] = coordinates[:, [2, 0]] # [z, y, x] --> [x, y, z]
+
+        # coordinates [n, 3] but backbone3d need [n, 4] --> [n, bs + 3]
+        n = coordinates.shape[0]
+
+        # add 0 as batch size
+        coordinates = np.hstack((np.zeros((n, 1)), coordinates))
+        
+
+        
         # load ground truth
         if self.split == 'train' or self.split == 'val':
             target_1_2_path = os.path.join(self.label_root, sequence, frame_id + "_1_2.npy")
@@ -430,10 +489,11 @@ class SemanticKittiDataset(Dataset):
         else:
             target_1_2 = None
 
+        
         meta_dict = dict(
             sequence_id = sequence,
             frame_id = frame_id,
-            lidar=np.concatenate(pts_list),
+            lidar=pts_list,
             target_1_2=target_1_2,
             projected_pix=projected_pixs,
             fov_mask=fov_masks, 
@@ -441,7 +501,12 @@ class SemanticKittiDataset(Dataset):
             lidar2img = lidar2img_rts,
             lidar2cam=lidar2cam_rts,
             cam_intrinsic=cam_intrinsics,
-            img_shape = [(self.img_H,self.img_W)]
+            img_shape = [(self.img_H,self.img_W)],
+            # Lidar_Point_Voxel part
+            lidar_voxels = voxels,
+            lidar_coordinates = coordinates,
+            lidar_num_points = num_points,
+            
         )
 
         return meta_dict
@@ -609,6 +674,138 @@ class SemanticKittiDataset(Dataset):
             logger.info(eval_results)
 
         return eval_results
+
+class PointFeatureEncoder(object):
+    def __init__(self, encoding_type, feature_list, point_cloud_range=None):
+        super().__init__()
+        assert list(feature_list[0:3]) == ['x', 'y', 'z']
+        self.encoding_type = encoding_type
+        self.feature_list = feature_list
+        self.point_cloud_range = point_cloud_range
+
+    @property
+    def num_point_features(self):
+        return getattr(self, self.encoding_type)(points=None)
+
+    def forward(self, points):
+        """
+        Args:
+            data_dict:
+                points: (N, 3 + C_in)
+                ...
+        Returns:
+            data_dict:
+                points: (N, 3 + C_out),
+                use_lead_xyz: whether to use xyz as point-wise features
+                ...
+        """
+        points, use_lead_xyz = getattr(self, self.encoding_type)(points)
+        
+        return points, use_lead_xyz
+
+    def absolute_coordinates_encoding(self, points=None):
+        if points is None:
+            num_output_features = len(self.feature_list)
+            return num_output_features
+
+        assert points.shape[-1] == len(self.feature_list)
+        point_feature_list = [points[:, 0:3]]
+        for x in self.feature_list:
+            if x in ['x', 'y', 'z']:
+                continue
+            idx = self.feature_list.index(x)
+            point_feature_list.append(points[:, idx:idx+1])
+        point_features = np.concatenate(point_feature_list, axis=1)
+        
+        return point_features, True
+
+
+
+class VoxelGeneratorWrapper():
+    def __init__(self, vsize_xyz, coors_range_xyz, num_point_features, max_num_points_per_voxel, max_num_voxels):
+        try:
+            from spconv.utils import VoxelGeneratorV2 as VoxelGenerator
+            self.spconv_ver = 1
+        except:
+            try:
+                from spconv.utils import VoxelGenerator
+                self.spconv_ver = 1
+            except:
+                from spconv.utils import Point2VoxelCPU3d as VoxelGenerator
+                self.spconv_ver = 2
+
+        if self.spconv_ver == 1:
+            self._voxel_generator = VoxelGenerator(
+                voxel_size=vsize_xyz,
+                point_cloud_range=coors_range_xyz,
+                max_num_points=max_num_points_per_voxel,
+                max_voxels=max_num_voxels
+            )
+        else:
+            self._voxel_generator = VoxelGenerator(
+                vsize_xyz=vsize_xyz,
+                coors_range_xyz=coors_range_xyz,
+                num_point_features=num_point_features,
+                max_num_points_per_voxel=max_num_points_per_voxel,
+                max_num_voxels=max_num_voxels
+            )
+
+    def generate(self, points):
+        if self.spconv_ver == 1:
+            voxel_output = self._voxel_generator.generate(points)
+            if isinstance(voxel_output, dict):
+                voxels, coordinates, num_points = \
+                    voxel_output['voxels'], voxel_output['coordinates'], voxel_output['num_points_per_voxel']
+            else:
+                voxels, coordinates, num_points = voxel_output
+        else:
+            assert tv is not None, f"Unexpected error, library: 'cumm' wasn't imported properly."
+            voxel_output = self._voxel_generator.point_to_voxel(tv.from_numpy(points))
+            tv_voxels, tv_coordinates, tv_num_points = voxel_output
+            # make copy with numpy(), since numpy_view() will disappear as soon as the generator is deleted
+            voxels = tv_voxels.numpy()
+            coordinates = tv_coordinates.numpy()
+            num_points = tv_num_points.numpy()
+        return voxels, coordinates, num_points
+     
+class DataProcessor(object):
+    def __init__(self, point_cloud_range, num_point_features, voxel_size):
+        self.point_cloud_range = point_cloud_range
+
+        self.num_point_features = num_point_features
+        
+        self.voxel_generator = VoxelGeneratorWrapper(
+            vsize_xyz=voxel_size,
+            coors_range_xyz=self.point_cloud_range,
+            num_point_features=self.num_point_features,
+            max_num_points_per_voxel=10,
+            max_num_voxels=500000,
+        )
+
+    def mask_points_by_range(self, points, limit_range):
+        mask = (points[:, 0] >= limit_range[0]) & (points[:, 0] <= limit_range[3]) \
+            & (points[:, 1] >= limit_range[1]) & (points[:, 1] <= limit_range[4])
+        return mask
+
+    def mask_points(self, points):
+        mask = self.mask_points_by_range(points, self.point_cloud_range)
+        
+        return points[mask]
+            
+    def shuffle_points(self, points):
+        shuffle_idx = np.random.permutation(points.shape[0])
+        points = points[shuffle_idx]
+
+        return points
+
+    def transform_points_to_voxels(self, points, use_lead_xyz):
+        voxel_output = self.voxel_generator.generate(points)
+        voxels, coordinates, num_points = voxel_output
+
+        if not use_lead_xyz:
+            voxels = voxels[..., 3:]  # remove xyz in voxels(N, 3)
+            
+        return voxels, coordinates, num_points
 
 
 def vox2world(vol_origin, vox_coords, vox_size, offsets=(0.5, 0.5, 0.5)):

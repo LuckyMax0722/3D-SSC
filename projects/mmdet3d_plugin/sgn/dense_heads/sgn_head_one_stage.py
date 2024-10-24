@@ -14,8 +14,15 @@ from projects.mmdet3d_plugin.sgn.utils.header import Header, SparseHeader
 from projects.mmdet3d_plugin.sgn.modules.sgb import SGB
 from projects.mmdet3d_plugin.sgn.modules.sdb import SDB
 from projects.mmdet3d_plugin.sgn.modules.flosp import FLoSP
+from projects.mmdet3d_plugin.sgn.modules.latentnet import Decoder
 from projects.mmdet3d_plugin.sgn.utils.lovasz_losses import lovasz_softmax
 from projects.mmdet3d_plugin.sgn.utils.ssc_loss import sem_scal_loss, geo_scal_loss, CE_ssc_loss
+
+import sys
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
+from projects.configs.config import CONF
 
 @HEADS.register_module()
 class SGNHeadOne(nn.Module):
@@ -54,6 +61,10 @@ class SGNHeadOne(nn.Module):
             self.class_weights = torch.from_numpy(np.array([0.464, 0.595, 0.865, 0.871, 0.717, 0.657, 0.852, 0.541, 0.602, 0.567, 0.607, 0.540, 0.636, 0.513, 0.564, 0.701, 0.774, 0.580, 0.690]))
         self.n_classes = len(self.class_names)
 
+        if CONF.LATENTNET.USE:  # use KL part or not
+            # KL Decoder
+            self.decoder = Decoder()
+        
         self.flosp = FLoSP(scale_2d_list)
         self.bottleneck = nn.Conv3d(self.embed_dims, self.embed_dims, kernel_size=3, padding=1)
         self.sgb = SGB(sizes=[self.bev_h, self.bev_w, self.bev_z], channels=self.embed_dims)
@@ -80,26 +91,169 @@ class SGNHeadOne(nn.Module):
         self.sem_scal_loss = sem_scal_loss
         self.geo_scal_loss = geo_scal_loss
         self.save_flag = save_flag
-        
+    
+    '''    
     def forward(self, mlvl_feats, img_metas, target):
         """Forward function.
         Args:
             mlvl_feats (tuple[Tensor]): Features from the upstream
                 network, each is a 5D-tensor with shape
                 (B, N, C, H, W).
+                torch.Size([1, 5, 128, 24, 77])
+            img_metas: Meta information such as camera intrinsics.
+                dict
+            target: Semantic completion ground truth. 
+                torch.Size([1, 256, 256, 32])
+        Returns:
+            ssc_logit (Tensor): Outputs from the segmentation head.
+        """
+        outs = []
+        
+        B = len(img_metas) # bs
+        
+        mlvl_feats = mlvl_feats[0] # tensor (B, N, C, H, W)
+        out = {}
+        
+        for i in range(B):
+            # match the mlvl_feats shape
+            mlvl_feats_ = mlvl_feats[i] # tensor (N, C, H, W)
+            mlvl_feats_ = mlvl_feats_.unsqueeze(0) # tensor (1, N, C, H, W)
+            mlvl_feats_ = [mlvl_feats_]
+            
+            img_metas_ = img_metas[i]
+            img_metas_ = [img_metas_]
+            
+            target_ = target[i]
+            target_ = target_.unsqueeze(0)
+            
+            
+            debug = True
+        
+            if 0:
+                print('===============')
+                print('mlvl_feats_')
+                print(type(mlvl_feats_))  # list
+                print(len(mlvl_feats_)) # 1
+                print(mlvl_feats_[0].size())  # torch.Size([1, 5, 128, 24, 77])
+                print('===============')
+                print('img_metas_')
+                print(type(img_metas_)) # list
+                print(len(img_metas_)) # 1
+                print(img_metas_[0]) # dict
+                print('===============')
+                print('target_')
+                print(type(target_))  # tensor
+                print(len(target_)) # 1
+                print(target_.size()) # torch.Size([1, 256, 256, 32])
+                print(target_[0].size()) # torch.Size([256, 256, 32])
+            
+            x3d = self.flosp(mlvl_feats_, img_metas_) # bs, c, nq
+            bs, c, _ = x3d.shape
+            x3d = self.bottleneck(x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z))
+            occ = self.occ_header(x3d).squeeze(1)
+            out["occ"] = occ
+
+            x3d = x3d.reshape(bs, c, -1)
+            # Load proposals
+            pts_out = self.pts_header(mlvl_feats_, img_metas_, target_)
+            pts_occ = pts_out['occ_logit'].squeeze(1)
+            proposal =  (pts_occ > 0).float().detach().cpu().numpy()
+            out['pts_occ'] = pts_occ
+
+            if proposal.sum() < 2:
+                proposal = np.ones_like(proposal)
+            unmasked_idx = np.asarray(np.where(proposal.reshape(-1)>0)).astype(np.int32)
+            masked_idx = np.asarray(np.where(proposal.reshape(-1)==0)).astype(np.int32)
+            vox_coords = self.get_voxel_indices()
+
+            # Compute seed features
+            seed_feats = x3d[0, :, vox_coords[unmasked_idx[0], 3]].permute(1, 0)
+            seed_coords = vox_coords[unmasked_idx[0], :3]
+            coords_torch = torch.from_numpy(np.concatenate(
+                [np.zeros_like(seed_coords[:, :1]), seed_coords], axis=1)).to(seed_feats.device)
+            seed_feats_desc = self.sgb(seed_feats, coords_torch)
+            sem = self.sem_header(seed_feats_desc)
+            out["sem_logit"] = sem
+            out["coords"] = seed_coords
+
+            # Complete voxel features
+            vox_feats = torch.empty((self.bev_h, self.bev_w, self.bev_z, self.embed_dims), device=x3d.device)
+            vox_feats_flatten = vox_feats.reshape(-1, self.embed_dims)
+            vox_feats_flatten[vox_coords[unmasked_idx[0], 3], :] = seed_feats_desc
+            vox_feats_flatten[vox_coords[masked_idx[0], 3], :] = self.mlp_prior(x3d[0, :, vox_coords[masked_idx[0], 3]].permute(1, 0))
+
+            vox_feats_diff = vox_feats_flatten.reshape(self.bev_h, self.bev_w, self.bev_z, self.embed_dims).permute(3, 0, 1, 2).unsqueeze(0)
+            if self.pts_header.guidance:
+                vox_feats_diff = torch.cat([vox_feats_diff, pts_out['occ_x']], dim=1)
+            vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z
+            ssc_dict, ssc_logit = self.ssc_header(vox_feats_diff)
+
+            out.update(ssc_dict)
+            
+            outs.append(out)
+        
+        if 1:
+            print('===============')
+            print('outs')
+            print(type(outs))  # list
+            print(len(outs)) # 1
+            print(outs[0])
+        return outs
+        '''
+
+    def forward(self, mlvl_feats, img_metas, target):
+        """Forward function.
+        Args:
+            mlvl_feats (tuple[Tensor]): Features from the upstream
+                network, each is a 5D-tensor with shape
+                (B, N, C, H, W).
+                list!!!!
+                torch.Size([1, 5, 128, 24, 77])
             img_metas: Meta information such as camera intrinsics.
             target: Semantic completion ground truth. 
+                torch.Size([256, 256, 32])
         Returns:
             ssc_logit (Tensor): Outputs from the segmentation head.
         """
         out = {}
-        x3d = self.flosp(mlvl_feats, img_metas) # bs, c, nq
+        
+        debug = False
+        
+        if debug:
+            print('===============')
+            print('mlvl_feats')
+            print(type(mlvl_feats))  # list
+            print(len(mlvl_feats)) # 1
+            print(mlvl_feats[0].size())  # torch.Size([1, 5, 128, 24, 77])
+            print('===============')
+            print('img_metas')
+            print(type(img_metas)) # list
+            print(len(img_metas)) # 1
+            print(img_metas[0]) # dict
+            print('===============')
+            print('target')
+            print(type(target))  # tensor
+            print(len(target)) # 1
+            print(target.size()) # torch.Size([1, 256, 256, 32])
+            print(target[0].size()) # torch.Size([256, 256, 32])
+            
+            
+
+        if CONF.LATENTNET.USE:  # use KL part or not
+            # KL Part
+            mlvl_feats[0] = self.decoder.forward_image(mlvl_feats, img_metas, target)
+        
+        # View Transformation
+        x3d = self.flosp(mlvl_feats, img_metas) # bs, c, nq --> torch.Size([1, 128, 262144])
         bs, c, _ = x3d.shape
-        x3d = self.bottleneck(x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z))
-        occ = self.occ_header(x3d).squeeze(1)
+        x3d = self.bottleneck(x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z))  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
+        
+        # Geometry Guidance --> SDB + 3D Conv
+        occ = self.occ_header(x3d).squeeze(1) # ([1, 128, 128, 16])
         out["occ"] = occ
 
-        x3d = x3d.reshape(bs, c, -1)
+        x3d = x3d.reshape(bs, c, -1)  # torch.Size([1, 128, 262144])
+        
         # Load proposals
         pts_out = self.pts_header(mlvl_feats, img_metas, target)
         pts_occ = pts_out['occ_logit'].squeeze(1)
@@ -113,6 +267,10 @@ class SGNHeadOne(nn.Module):
         vox_coords = self.get_voxel_indices()
 
         # Compute seed features
+        # bs = 1
+        # x3d size torch.Size([1, 128, 262144])
+        # x3d size torch.Size([2, 128, 262144])
+        
         seed_feats = x3d[0, :, vox_coords[unmasked_idx[0], 3]].permute(1, 0)
         seed_coords = vox_coords[unmasked_idx[0], :3]
         coords_torch = torch.from_numpy(np.concatenate(
@@ -132,10 +290,33 @@ class SGNHeadOne(nn.Module):
         if self.pts_header.guidance:
             vox_feats_diff = torch.cat([vox_feats_diff, pts_out['occ_x']], dim=1)
         vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z
-        ssc_dict = self.ssc_header(vox_feats_diff)
-
+        ssc_dict = self.ssc_header(vox_feats_diff)  # --> ssc logit torch.Size([1, 20, 256, 256, 32])
+        
         out.update(ssc_dict)
         
+        
+        if debug:
+            print('===============')
+            print('occ')
+            print(type(occ))  # tensor
+            print(occ.size())  # ([1, 128, 128, 16])
+            print('===============')
+            print('pts_occ')
+            print(type(pts_occ))  # tensor
+            print(pts_occ.size())  # ([1, 128, 128, 16])
+            print('===============')
+            print('sem')
+            print(type(sem))  # tensor
+            print(sem.size())  # torch.Size([227910*, 20])
+            print('===============')
+            print('seed_coords')
+            print(type(seed_coords))  # numpy
+            print(seed_coords.shape)  # (227910*, 3)
+            print('===============')
+            print('ssc_logit')
+            print(type(ssc_logit))  # tensor
+            print(ssc_logit.size())  # torch.Size([1, 20, 256, 256, 32])
+            
         return out
 
     def step(self, out_dict, target, img_metas, step_type):
@@ -179,7 +360,7 @@ class SGNHeadOne(nn.Module):
             ones = torch.ones_like(target_2).to(target_2.device)
             target_2_binary = torch.where(torch.logical_or(target_2==255, target_2==0), target_2, ones)
             loss_occ = F.binary_cross_entropy(out_dict['occ'].sigmoid()[target_2_binary!=255], target_2_binary[target_2_binary!=255].float())
-            loss_dict['loss_occ'] = loss_occ
+            loss_dict['loss_occ'] = loss_occ  # --> L geo
 
             loss_dict['loss_pts'] = F.binary_cross_entropy(out_dict['pts_occ'].sigmoid()[target_2_binary!=255], target_2_binary[target_2_binary!=255].float())
 

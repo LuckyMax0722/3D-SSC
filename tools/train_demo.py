@@ -109,7 +109,10 @@ def main():
 
     args.config = CONF.PATH.SGN_CONFIG
     args.work_dir = CONF.PATH.OUTPUT
-    args.launcher = 'none'
+    args.resume_from = CONF.PATH.CHECKPOINT_SGN
+    args.deterministic = True
+    args.launcher = 'pytorch'
+
 
     cfg = Config.fromfile(args.config)
     if args.cfg_options is not None:
@@ -158,7 +161,8 @@ def main():
                                 osp.splitext(osp.basename(args.config))[0])
     # if args.resume_from is not None:
     if args.resume_from is not None and osp.isfile(args.resume_from):
-        cfg.resume_from = args.resume_from
+        #cfg.resume_from = args.resume_from
+        cfg.load_from = args.resume_from
     if args.gpu_ids is not None:
         cfg.gpu_ids = args.gpu_ids
     else:

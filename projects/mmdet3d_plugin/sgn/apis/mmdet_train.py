@@ -196,5 +196,5 @@ def custom_train_detector(model,
     if cfg.resume_from:
         runner.resume(cfg.resume_from)
     elif cfg.load_from:
-        runner.load_checkpoint(cfg.load_from)
+        runner.load_checkpoint(cfg.load_from, strict=False)
     runner.run(data_loaders, cfg.workflow)

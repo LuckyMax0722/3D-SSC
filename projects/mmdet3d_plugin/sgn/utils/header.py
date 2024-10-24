@@ -30,10 +30,11 @@ class Header(nn.Module):
 
         ssc_logit_full = self.mlp_head(x3d_up_l1)
 
-        res["ssc_logit"] = ssc_logit_full.reshape(w, l, h, self.class_num).permute(3,0,1,2).unsqueeze(0)
+        ssc_logit = ssc_logit_full.reshape(w, l, h, self.class_num).permute(3,0,1,2).unsqueeze(0)
+        
+        res["ssc_logit"] = ssc_logit
 
         return res
-
 
 class SparseHeader(nn.Module):
     def __init__(self, class_num, feature):

@@ -30,6 +30,7 @@ import torch
 
 from depth_anything_v2.dpt import DepthAnythingV2
 
+
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Generate depth maps and point clouds from images.')

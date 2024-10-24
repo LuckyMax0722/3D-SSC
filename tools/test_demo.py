@@ -123,7 +123,9 @@ def main():
 
     args.config = CONF.PATH.SGN_CONFIG
     args.checkpoint = CONF.PATH.CHECKPOINT_SGN
-    args.launcher = 'none'
+    args.show_dir = CONF.PATH.OUTPUT
+    args.deterministic = True
+    args.launcher = 'pytorch'
     args.eval = 'bbox'
 
     assert args.out or args.eval or args.format_only or args.show \

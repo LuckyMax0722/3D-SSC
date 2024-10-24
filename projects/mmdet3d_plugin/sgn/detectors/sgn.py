@@ -1,7 +1,16 @@
 from mmcv.runner import auto_fp16
 from mmdet.models import DETECTORS
 from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
+import torch
 
+
+from ..modules.latentnet import LatentNet
+
+import sys
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
+from projects.configs.config import CONF
 
 @DETECTORS.register_module()
 class SGN(MVXTwoStageDetector):
@@ -31,11 +40,16 @@ class SGN(MVXTwoStageDetector):
                              pts_bbox_head, img_roi_head, img_rpn_head,
                              train_cfg, test_cfg, pretrained)
         self.only_occ = occupancy
+        
+        if CONF.LATENTNET.USE:  # use KL part or not
+            # KL Part
+            self.latent = LatentNet()
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
         """Extract features of images."""
 
         B = img.size(0)
+        
         if img is not None:
             if img.dim() == 5 and img.size(0) == 1:
                 B, N, C, H, W = img.size()
@@ -43,28 +57,48 @@ class SGN(MVXTwoStageDetector):
 
             img_feats = self.img_backbone(img)
 
+            # bs = 1
+            # img_head size torch.Size([5, 1024, 24, 77])
+
+            # img_feats is a tuple
             if isinstance(img_feats, dict):
                 img_feats = list(img_feats.values())
+                
         else:
             return None
+        
         if self.with_img_neck:
             img_feats = self.img_neck(img_feats)
 
         img_feats_reshaped = []
         for img_feat in img_feats:
+            
             BN, C, H, W = img_feat.size()
+            # bs = 1
+            # img_neck size torch.Size([5, 128, 24, 77])
+            
+            # len_queue = None
             if len_queue is not None:
                 img_feats_reshaped.append(img_feat.view(int(B/len_queue), len_queue, int(BN / B), C, H, W))
             else:
                 img_feats_reshaped.append(img_feat.view(B, int(BN / B), C, H, W))
+        
+        # torch.Size([1, 5, 128, 24, 77])
         return img_feats_reshaped
+
 
     @auto_fp16(apply_to=('img'))
     def extract_feat(self, img, img_metas=None, len_queue=None):
         """Extract features from images and points."""
-
-        img_feats = self.extract_img_feat(img, img_metas, len_queue=len_queue)
         
+        # bs = 1
+        # img size torch.Size([1, 1, 5, 3, 370, 1220]) None None
+        # img size torch.Size([bs, len_queue, 5, 3, H, W])
+        
+        B = img.size(0)
+        
+        img_feats = self.extract_img_feat(img, img_metas, len_queue=len_queue)
+
         return img_feats
 
     def forward_pts_train(self,
@@ -77,6 +111,24 @@ class SGN(MVXTwoStageDetector):
         losses = self.pts_bbox_head.training_step(outs, target, img_metas)
         return losses
 
+    def forward_kl_train(self,
+                          img_feats, 
+                          img_metas,
+                          target):
+        """Forward function'
+        """
+        losses = self.latent.forward_train(img_feats, img_metas, target)
+        return losses
+    
+    def forward_kl_test(self,
+                          img_feats, 
+                          img_metas,
+                          target):
+        """Forward function'
+        """
+        self.latent.forward_test(img_feats, img_metas, target)
+
+        
     def forward(self, return_loss=True, **kwargs):
         """Calls either forward_train or forward_test depending on whether
         return_loss=True.
@@ -109,18 +161,38 @@ class SGN(MVXTwoStageDetector):
             dict: Losses of different branches.
         """
 
+        # bs = 1
+        # img size torch.Size([1, 1, 5, 3, 370, 1220])
+        # img size torch.Size([bs, len_queue, 5, 3, H, W])
+        
+        # bs = 2
+        # img size torch.Size([2, 1, 5, 3, 370, 1220])
+        
         len_queue = img.size(1)
         batch_size = img.shape[0]
         img_W = img.shape[5]
         img_H = img.shape[4]
         
         img_metas = [each[len_queue-1] for each in img_metas]
-        img = img[:, -1, ...]
+        
+        # bs = 1
+        # img size torch.Size([1, 5, 3, 370, 1220])
+        # img size torch.Size([bs, 5, 3, H, W])
+        img = img[:, -1, ...]  
+        
+        
         if self.only_occ:
             img_feats = None
         else:
             img_feats = self.extract_feat(img=img) 
+        
         losses = dict()
+        
+        if CONF.LATENTNET.USE:  # use KL part or not
+            # KL Part
+            losses_latent = self.forward_kl_train(img_feats, img_metas, target)
+            losses.update(losses_latent)
+        
         losses_pts = self.forward_pts_train(img_feats, img_metas, target)
         losses.update(losses_pts)
         return losses
@@ -153,6 +225,11 @@ class SGN(MVXTwoStageDetector):
             img_feats = None
         else:
             img_feats = self.extract_feat(img=img)  
+        
+        if CONF.LATENTNET.USE:  # use KL part or not
+            # KL Part
+            self.forward_kl_test(img_feats, img_metas, target)
+            
         outs = self.pts_bbox_head(img_feats, img_metas, target)
         completion_results = self.pts_bbox_head.validation_step(outs, target, img_metas)
 

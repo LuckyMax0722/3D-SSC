@@ -14,6 +14,9 @@ Download the following data from [KITTI](https://www.cvlibs.net/datasets/kitti/e
 and also from [SemanticKITTI](https://www.semantic-kitti.org/dataset.html)
 * Download to get the SemanticKITTI voxel data (700 MB)
 
+also label
+https://drive.google.com/file/d/1r6RWjPClt9-EBbuOczLB295c00o7pOOP/view?usp=share_link
+
 Unzip all the .zip files and run
 ```shell
 python ./SGN/preprocess/poses/pose_preprocess.py

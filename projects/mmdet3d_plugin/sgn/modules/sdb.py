@@ -149,7 +149,7 @@ class SDB(nn.Module):
         super().__init__()
 
         c = out_channel
-        self.conv_in = nn.Conv3d(channel, c, kernel_size=3, padding=1)
+        self.conv_in = nn.Conv3d(channel, c, kernel_size=3, padding=1)  # torch.Size([1, 64, 128, 128, 16])
         basic_block = MPAC if version=='v1' else MPACv2
         blocks = [basic_block(c, residual=True) for _ in range(depth)]
         self.diffusion = nn.Sequential(*blocks)

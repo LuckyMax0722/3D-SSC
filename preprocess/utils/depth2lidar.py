@@ -1,4 +1,3 @@
-import argparse
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,39 +20,30 @@ def project_disp_to_depth(calib, depth, max_high):
     valid = (cloud[:, 0] >= 0) & (cloud[:, 2] < max_high)
     return cloud[valid]
 
-class Depth2Lidar:
-    def __init__(self, calib_dir, depth_dir, save_dir, max_high):
-        self.calib_dir = calib_dir
-        self.depth_dir = depth_dir
-        self.save_dir = save_dir
-        self.max_high = max_high
+def main(depth_dir, calib_dir, save_dir, max_high, seq):
+    assert os.path.isdir(depth_dir)
+    assert os.path.isdir(calib_dir)
 
-        assert os.path.isdir(self.depth_dir)
-        assert os.path.isdir(self.calib_dir)
+    if not os.path.isdir(save_dir):
+        os.makedirs(save_dir)
 
-        if not os.path.isdir(self.save_dir):
-            os.makedirs(self.save_dir)
+    depths = [x for x in os.listdir(depth_dir) if x[-3:] == 'npy' and 'std' not in x]
+    depths = sorted(depths)
 
-    def process_point_cloud(self):
-        depths = [x for x in os.listdir(self.depth_dir) if x[-3:] == 'npy' and 'std' not in x]
-        depths = sorted(depths)
+    for fn in depths:
+        predix = fn[:-4]
+        # predix = fn[:-8]
+        # calib_file = '{}/{}.txt'.format(args.calib_dir, predix)
+        calib_file = '{}/{}.txt'.format(calib_dir, 'calib')
+        calib = kitti_util.Calibration(calib_file)
+        depth_map = np.load(depth_dir + '/' + fn)
 
-        for fn in depths:
-            predix = fn[:-4]
-            # predix = fn[:-8]
-            # calib_file = '{}/{}.txt'.format(args.calib_dir, predix)
-            calib_file = '{}/{}.txt'.format(self.calib_dir, 'calib')
-            calib = kitti_util.Calibration(calib_file)
-            depth_map = np.load(self.depth_dir + '/' + fn)
-
-            lidar = project_disp_to_depth(calib, depth_map, self.max_high)
-            # pad 1 in the indensity dimension
-            lidar = np.concatenate([lidar, np.ones((lidar.shape[0], 1))], 1)
-            lidar = lidar.astype(np.float32)
-            lidar.tofile('{}/{}.bin'.format(self.save_dir, predix))
-            print('Finish Depth {}'.format(predix))
-
-
+        lidar = project_disp_to_depth(calib, depth_map, max_high)
+        # pad 1 in the indensity dimension
+        lidar = np.concatenate([lidar, np.ones((lidar.shape[0], 1))], 1)
+        lidar = lidar.astype(np.float32)
+        lidar.tofile('{}/{}.bin'.format(save_dir, predix))
+        print('Finish Depth {}/{}'.format(seq, predix))
 
 if __name__ == '__main__':
     sequences = ['00', '01', '02', '03', '04', '05', '06', '07', '08', '09', 
@@ -64,14 +54,7 @@ if __name__ == '__main__':
         calib_dir = os.path.join(CONF.PATH.DATA_DATASETS_SEQUENCES, seq)
         depth_dir = os.path.join(CONF.PATH.DATA_DATASETS_MSNET3D_DEPTH, 'sequences', seq)
         save_dir = os.path.join(CONF.PATH.DATA_DATASETS_MSNET3D_LIDAR, 'sequences', seq)
+        max_high = 80
 
-        D2L = Depth2Lidar(
-            calib_dir=calib_dir,
-            depth_dir=depth_dir,
-            save_dir=save_dir,
-            max_high = 80
-        )
-
-        D2L.process_point_cloud()
-
+        main(depth_dir, calib_dir, save_dir, max_high, seq)
     

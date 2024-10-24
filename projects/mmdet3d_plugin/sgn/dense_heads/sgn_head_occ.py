@@ -15,6 +15,13 @@ import spconv.pytorch as spconv
 
 from mmdet.models import HEADS
 from projects.mmdet3d_plugin.sgn.utils.ssc_loss import BCE_ssc_loss
+from projects.mmdet3d_plugin.sgn.modules.latentnet import Decoder
+
+import sys
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
+from projects.configs.config import CONF
 
 @HEADS.register_module()
 class SGNHeadOcc(nn.Module):
@@ -41,6 +48,10 @@ class SGNHeadOcc(nn.Module):
         self.voxelize = Voxelization(coors_range_xyz, spatial_shape)
         f = spatial_shape[-1]
 
+        if CONF.LATENTNET.USE:  # use KL part or not
+            # KL Decoder
+            self.decoder = Decoder()
+        
         self.pool = nn.MaxPool2d(2)  # [F=2; S=2; P=0; D=1]
 
         self.pooling = nn.MaxPool3d((2, 2, 2), stride=(2, 2, 2))
@@ -103,12 +114,21 @@ class SGNHeadOcc(nn.Module):
         batch_idx = []
         tensor = torch.ones((1,), dtype=torch.long).to(device)
         for i, img_meta in enumerate(img_metas):
-            pc = torch.from_numpy(img_meta['lidar']).float().to(device)
-            points.append(pc)
+            pc = torch.from_numpy(img_meta['lidar']).float().to(device)  # read pesudo point cloud
+            points.append(pc)  # torch.Size([2333080, 3])  (N, 3)
             batch_idx.append(tensor.new_full((pc.shape[0],), i))
-        points, batch_idx = torch.cat(points), torch.cat(batch_idx)
-        input = self.voxelize(points, batch_idx).permute(0, 3, 1, 2)
+            
+        points, batch_idx = torch.cat(points), torch.cat(batch_idx)  # torch.Size([2333080, 3]) torch.Size([2333080])
+        input = self.voxelize(points, batch_idx).permute(0, 3, 1, 2)  # torch.Size([1, 32, 256, 256])
+        
+        
+        if CONF.LATENTNET.USE:  # use KL part or not
+            # KL Part
+            input = self.decoder.forward_point(input, img_metas, target)
 
+
+        # Occupancy prediction 这是个U-Net
+        
         # Encoder block
         _skip_1_1 = self.Encoder_block1(input)
         # print('_skip_1_1.shape', _skip_1_1.shape)  # [1, 32, 256, 256]
@@ -138,8 +158,8 @@ class SGNHeadOcc(nn.Module):
         out_scale_1_2__3D = out_scale_1_2__3D.permute(0, 1, 3, 4, 2) # [1, 20, 128, 128, 16]
 
         out = {}
-        out['occ_logit'] = out_scale_1_2__3D
-        out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None
+        out['occ_logit'] = out_scale_1_2__3D  # [1, 20, 128, 128, 16]
+        out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 128, 128, 16])
 
         return out
 
