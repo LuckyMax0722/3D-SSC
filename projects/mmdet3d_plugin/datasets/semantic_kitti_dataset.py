@@ -10,6 +10,8 @@ from torchvision import transforms
 from mmdet.datasets import DATASETS
 from mmcv.parallel import DataContainer as DC
 
+import open3d as o3d
+
 import sys
 import os
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
@@ -41,25 +43,37 @@ class SemanticKittiDataset(Dataset):
     ):
         super().__init__()
         
-        point_cloud_range = CONF.KITTI.POINT_CLOUD_RANGE
-        encoding_type = CONF.KITTI.POINT_ENCODING_TYPE
-        feature_list = CONF.KITTI.POINT_FEATURE_LIST
-        voxel_size = CONF.KITTI.VOXEL_SIZE
+        # KL data preprocess
+        if CONF.LATENTNET.USE_V1:
+            point_cloud_range = CONF.KITTI.POINT_CLOUD_RANGE
+            encoding_type = CONF.KITTI.POINT_ENCODING_TYPE
+            feature_list = CONF.KITTI.POINT_FEATURE_LIST
+            voxel_size = CONF.KITTI.VOXEL_SIZE
+            
+            self.point_cloud_range = np.array(point_cloud_range, dtype=np.float32)
+            
+            self.point_feature_encoder = PointFeatureEncoder(
+                encoding_type,
+                feature_list,
+                point_cloud_range=self.point_cloud_range
+            )
+            
+            self.data_processor = DataProcessorV1(
+                point_cloud_range = point_cloud_range, 
+                num_point_features=self.point_feature_encoder.num_point_features, 
+                voxel_size = voxel_size
+            )
         
-        self.point_cloud_range = np.array(point_cloud_range, dtype=np.float32)
-        
-        self.point_feature_encoder = PointFeatureEncoder(
-            encoding_type,
-            feature_list,
-            point_cloud_range=self.point_cloud_range
-        )
-        
-        self.data_processor = DataProcessor(
-            point_cloud_range = point_cloud_range, 
-            num_point_features=self.point_feature_encoder.num_point_features, 
-            voxel_size = voxel_size
-        )
-        
+        elif CONF.LATENTNET.USE_V2:
+            point_cloud_range = CONF.KITTI.POINT_CLOUD_RANGE
+            voxel_size = CONF.KITTI.VOXEL_SIZE
+            input_pt_num = CONF.VP2P.INPUT_PT_NUM
+            
+            self.data_processor = DataProcessorV2(
+                point_cloud_range = point_cloud_range, 
+                voxel_size = voxel_size,
+                input_pt_num = input_pt_num,
+            )
         
         self.data_root = data_root
         self.label_root = os.path.join(preprocess_root, labels_tag)
@@ -455,30 +469,42 @@ class SemanticKittiDataset(Dataset):
         pts_list = np.concatenate(pts_list)
         
         
-        # Lidar_Point_Voxel process
-        zeros_column = np.zeros((pts_list.shape[0], 1))
-        pts_list_4 = np.hstack((pts_list, zeros_column))
+        if CONF.LATENTNET.USE_V1:   
+            # Lidar_Point_Voxel process
+            zeros_column = np.zeros((pts_list.shape[0], 1))
+            pts_list_4 = np.hstack((pts_list, zeros_column))
 
-        points, use_lead_xyz = self.point_feature_encoder.forward(pts_list_4)
+            points, use_lead_xyz = self.point_feature_encoder.forward(pts_list_4)
 
-        points = self.data_processor.mask_points(points)
-    
-        if self.split == 'train' or self.split == 'val':
-            points = self.data_processor.shuffle_points(points)
-
-        voxels, coordinates, num_points = self.data_processor.transform_points_to_voxels(points, use_lead_xyz)
+            points = self.data_processor.mask_points(points)
         
+            if self.split == 'train' or self.split == 'val':
+                points = self.data_processor.shuffle_points(points)
 
-        #coordinates[:, [0, 2]] = coordinates[:, [2, 0]] # [z, y, x] --> [x, y, z]
+            voxels, coordinates, num_points = self.data_processor.transform_points_to_voxels(points, use_lead_xyz)
+            
 
-        # coordinates [n, 3] but backbone3d need [n, 4] --> [n, bs + 3]
-        n = coordinates.shape[0]
+            #coordinates[:, [0, 2]] = coordinates[:, [2, 0]] # [z, y, x] --> [x, y, z]
 
-        # add 0 as batch size
-        coordinates = np.hstack((np.zeros((n, 1)), coordinates))
+            # coordinates [n, 3] but backbone3d need [n, 4] --> [n, bs + 3]
+            n = coordinates.shape[0]
+
+            # add 0 as batch size
+            coordinates = np.hstack((np.zeros((n, 1)), coordinates))
+            
+        elif CONF.LATENTNET.USE_V2:
+
+            pc_np = self.data_processor.mask_points(pts_list)
         
-
-        
+            if self.split == 'train' or self.split == 'val':
+                pc_np = self.data_processor.shuffle_points(pc_np)
+            
+            pc_np = self.data_processor.downsample(pc_np.T)
+            
+            pc_np = self.data_processor.downsample_np(pc_np)  # [3, 40960]
+        else:
+            pass
+            
         # load ground truth
         if self.split == 'train' or self.split == 'val':
             target_1_2_path = os.path.join(self.label_root, sequence, frame_id + "_1_2.npy")
@@ -490,24 +516,53 @@ class SemanticKittiDataset(Dataset):
             target_1_2 = None
 
         
-        meta_dict = dict(
-            sequence_id = sequence,
-            frame_id = frame_id,
-            lidar=pts_list,
-            target_1_2=target_1_2,
-            projected_pix=projected_pixs,
-            fov_mask=fov_masks, 
-            img_filename=image_paths,
-            lidar2img = lidar2img_rts,
-            lidar2cam=lidar2cam_rts,
-            cam_intrinsic=cam_intrinsics,
-            img_shape = [(self.img_H,self.img_W)],
-            # Lidar_Point_Voxel part
-            lidar_voxels = voxels,
-            lidar_coordinates = coordinates,
-            lidar_num_points = num_points,
-            
-        )
+        if CONF.LATENTNET.USE_V1:
+            meta_dict = dict(
+                sequence_id = sequence,
+                frame_id = frame_id,
+                lidar=pts_list,
+                target_1_2=target_1_2,
+                projected_pix=projected_pixs,
+                fov_mask=fov_masks, 
+                img_filename=image_paths,
+                lidar2img = lidar2img_rts,
+                lidar2cam=lidar2cam_rts,
+                cam_intrinsic=cam_intrinsics,
+                img_shape = [(self.img_H,self.img_W)],
+                # Lidar_Point_Voxel part
+                lidar_voxels = voxels,
+                lidar_coordinates = coordinates,
+                lidar_num_points = num_points,
+            )
+        elif CONF.LATENTNET.USE_V2:
+            meta_dict = dict(
+                sequence_id = sequence,
+                frame_id = frame_id,
+                lidar=pts_list,
+                target_1_2=target_1_2,
+                projected_pix=projected_pixs,
+                fov_mask=fov_masks, 
+                img_filename=image_paths,
+                lidar2img = lidar2img_rts,
+                lidar2cam=lidar2cam_rts,
+                cam_intrinsic=cam_intrinsics,
+                img_shape = [(self.img_H,self.img_W)],
+                pc = pc_np.astype(np.float32)
+            )
+        else:
+            meta_dict = dict(
+                sequence_id = sequence,
+                frame_id = frame_id,
+                lidar=pts_list,
+                target_1_2=target_1_2,
+                projected_pix=projected_pixs,
+                fov_mask=fov_masks, 
+                img_filename=image_paths,
+                lidar2img = lidar2img_rts,
+                lidar2cam=lidar2cam_rts,
+                cam_intrinsic=cam_intrinsics,
+                img_shape = [(self.img_H,self.img_W)]
+            )
 
         return meta_dict
 
@@ -521,32 +576,12 @@ class SemanticKittiDataset(Dataset):
         Returns:
             torch.tensor: Img.
         """
-        seq_len = len(self.poses[sequence])
-        image_list = []
-
-        rgb_path = os.path.join(
-            self.data_root, "dataset", "sequences", sequence, "image_2", frame_id + ".png"
-        )
-        img = Image.open(rgb_path).convert("RGB")
-        # Image augmentation
-        if self.color_jitter is not None:
-            img = self.color_jitter(img)
-        # PIL to numpy
-        img = np.array(img, dtype=np.float32, copy=False) / 255.0
-        img = img[:self.img_H, :self.img_W, :]  # crop image
-        image_list.append(self.normalize_rgb(img))
-
-        # reference frame
-        for i in self.target_frames:
-            id = int(frame_id)
-
-            if id + i < 0 or id + i > seq_len-1:
-                target_id = frame_id
-            else:
-                target_id = str(id + i).zfill(6)
+        if CONF.LATENTNET.USE_V2:
+            seq_len = len(self.poses[sequence])
+            image_list = []
 
             rgb_path = os.path.join(
-                self.data_root, "dataset", "sequences", sequence, "image_2", target_id + ".png"
+                self.data_root, "dataset", "sequences", sequence, "image_2", frame_id + ".png"
             )
             img = Image.open(rgb_path).convert("RGB")
             # Image augmentation
@@ -555,12 +590,81 @@ class SemanticKittiDataset(Dataset):
             # PIL to numpy
             img = np.array(img, dtype=np.float32, copy=False) / 255.0
             img = img[:self.img_H, :self.img_W, :]  # crop image
-
             image_list.append(self.normalize_rgb(img))
 
-        image_tensor = torch.stack(image_list, dim=0) #[N, 3, 370, 1220]
+            # reference frame
+            for i in self.target_frames:
+                id = int(frame_id)
 
-        return image_tensor
+                if id + i < 0 or id + i > seq_len-1:
+                    target_id = frame_id
+                else:
+                    target_id = str(id + i).zfill(6)
+
+                rgb_path = os.path.join(
+                    self.data_root, "dataset", "sequences", sequence, "image_2", target_id + ".png"
+                )
+                img = Image.open(rgb_path).convert("RGB")
+                # Image augmentation
+                if self.color_jitter is not None:
+                    img = self.color_jitter(img)
+                # PIL to numpy
+                img = np.array(img, dtype=np.float32, copy=False) / 255.0
+                print('img:', img.shape)
+
+                import cv2
+                img = cv2.resize(img,
+                            (int(160)),
+                            int(512)),
+                            interpolation=cv2.INTER_LINEAR)
+                #img = img[:self.img_H, :self.img_W, :]  # crop image
+
+                image_list.append(self.normalize_rgb(img))
+
+            image_tensor = torch.stack(image_list, dim=0) #[N, 3, 370, 1220]
+
+            return image_tensor
+        else:
+            seq_len = len(self.poses[sequence])
+            image_list = []
+
+            rgb_path = os.path.join(
+                self.data_root, "dataset", "sequences", sequence, "image_2", frame_id + ".png"
+            )
+            img = Image.open(rgb_path).convert("RGB")
+            # Image augmentation
+            if self.color_jitter is not None:
+                img = self.color_jitter(img)
+            # PIL to numpy
+            img = np.array(img, dtype=np.float32, copy=False) / 255.0
+            img = img[:self.img_H, :self.img_W, :]  # crop image
+            image_list.append(self.normalize_rgb(img))
+
+            # reference frame
+            for i in self.target_frames:
+                id = int(frame_id)
+
+                if id + i < 0 or id + i > seq_len-1:
+                    target_id = frame_id
+                else:
+                    target_id = str(id + i).zfill(6)
+
+                rgb_path = os.path.join(
+                    self.data_root, "dataset", "sequences", sequence, "image_2", target_id + ".png"
+                )
+                img = Image.open(rgb_path).convert("RGB")
+                # Image augmentation
+                if self.color_jitter is not None:
+                    img = self.color_jitter(img)
+                # PIL to numpy
+                img = np.array(img, dtype=np.float32, copy=False) / 255.0
+                img = img[:self.img_H, :self.img_W, :]  # crop image
+
+                image_list.append(self.normalize_rgb(img))
+
+            image_tensor = torch.stack(image_list, dim=0) #[N, 3, 370, 1220]
+
+            return image_tensor
 
     def get_gt_info(self, sequence, frame_id):
         """Get the ground truth.
@@ -719,8 +823,6 @@ class PointFeatureEncoder(object):
         
         return point_features, True
 
-
-
 class VoxelGeneratorWrapper():
     def __init__(self, vsize_xyz, coors_range_xyz, num_point_features, max_num_points_per_voxel, max_num_voxels):
         try:
@@ -768,7 +870,7 @@ class VoxelGeneratorWrapper():
             num_points = tv_num_points.numpy()
         return voxels, coordinates, num_points
      
-class DataProcessor(object):
+class DataProcessorV1(object):
     def __init__(self, point_cloud_range, num_point_features, voxel_size):
         self.point_cloud_range = point_cloud_range
 
@@ -807,7 +909,54 @@ class DataProcessor(object):
             
         return voxels, coordinates, num_points
 
+class DataProcessorV2:
+    def __init__(self, point_cloud_range, voxel_size, input_pt_num):
+        self.point_cloud_range = point_cloud_range
+        self.voxel_grid_downsample_size = voxel_size[0]
+        self.num_pc = input_pt_num
+        
+    def mask_points_by_range(self, points, limit_range):
+        mask = (points[:, 0] >= limit_range[0]) & (points[:, 0] <= limit_range[3]) \
+            & (points[:, 1] >= limit_range[1]) & (points[:, 1] <= limit_range[4])
+        return mask
 
+    def mask_points(self, points):
+        mask = self.mask_points_by_range(points, self.point_cloud_range)
+        
+        return points[mask]
+            
+    def shuffle_points(self, points):
+        shuffle_idx = np.random.permutation(points.shape[0])
+        points = points[shuffle_idx]
+
+        return points
+    
+    def downsample(self, pointcloud):
+        pcd=o3d.geometry.PointCloud()
+        pcd.points=o3d.utility.Vector3dVector(np.transpose(pointcloud))
+
+        fake_colors=np.zeros((pointcloud.shape[1],3))
+
+        pcd.colors=o3d.utility.Vector3dVector(fake_colors)
+
+        down_pcd=pcd.voxel_down_sample(voxel_size=self.voxel_grid_downsample_size)
+        down_pcd_points=np.transpose(np.asarray(down_pcd.points))
+
+        return down_pcd_points
+    
+    def downsample_np(self, pc_np):
+        if pc_np.shape[1] >= self.num_pc:
+            choice_idx = np.random.choice(pc_np.shape[1], self.num_pc, replace=False)
+        else:
+            fix_idx = np.asarray(range(pc_np.shape[1]))
+            while pc_np.shape[1] + fix_idx.shape[0] < self.num_pc:
+                fix_idx = np.concatenate((fix_idx, np.asarray(range(pc_np.shape[1]))), axis=0)
+            random_idx = np.random.choice(pc_np.shape[1], self.num_pc - fix_idx.shape[0], replace=False)
+            choice_idx = np.concatenate((fix_idx, random_idx), axis=0)
+        pc_np = pc_np[:, choice_idx]
+        
+        return pc_np
+    
 def vox2world(vol_origin, vox_coords, vox_size, offsets=(0.5, 0.5, 0.5)):
         """Convert voxel grid coordinates to world coordinates."""
         vol_origin = vol_origin.astype(np.float32)
@@ -826,9 +975,20 @@ def cam2pix(cam_pts, intr):
 
     return np.round(pix).astype(np.int64)
 
-
 def rigid_transform(xyz, transform):
     """Applies a rigid transform to an (N, 3) pointcloud."""
     xyz_h = np.hstack([xyz, np.ones((len(xyz), 1), dtype=np.float32)])
     xyz_t_h = np.dot(transform, xyz_h.T).T
     return xyz_t_h[:, :3]
+    
+def get_pointcloud(self, pc_folder, seq_i):
+    pc_path = os.path.join(pc_folder, '%06d.npy' % seq_i)
+    npy_data = np.load(pc_path).astype(np.float32)
+    # shuffle the point cloud data, this is necessary!
+    npy_data = npy_data[:, np.random.permutation(npy_data.shape[1])]
+    pc_np = npy_data[0:3, :]  # 3xN
+    intensity_np = npy_data[3:4, :]  # 1xN
+    sn_np = npy_data[4:7, :]  # 3xN
+
+    return pc_np, intensity_np, sn_np
+    

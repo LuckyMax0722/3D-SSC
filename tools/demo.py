@@ -109,8 +109,9 @@ def main():
     args = parse_args()
 
     args.config = CONF.PATH.SGN_CONFIG
-    args.work_dir = CONF.PATH.OUTPUT
-    args.resume_from = CONF.PATH.CHECKPOINT_SGN
+    #args.work_dir = CONF.PATH.OUTPUT
+    args.work_dir = '/u/home/caoh/projects/MA_Jiachen/SGN/a_tmp'
+    #args.resume_from = CONF.PATH.CHECKPOINT_SGN
     args.deterministic = True
     args.launcher = 'none'
 

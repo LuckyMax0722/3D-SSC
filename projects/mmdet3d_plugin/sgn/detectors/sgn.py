@@ -4,7 +4,8 @@ from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
 import torch
 
 
-from ..modules.latentnet import LatentNet
+
+
 
 import sys
 import os
@@ -41,8 +42,13 @@ class SGN(MVXTwoStageDetector):
                              train_cfg, test_cfg, pretrained)
         self.only_occ = occupancy
         
-        if CONF.LATENTNET.USE:  # use KL part or not
-            # KL Part
+        # KL Part
+        # use KL part or not
+        if CONF.LATENTNET.USE_V1:
+            from ..modules.latentnet_v1 import LatentNet
+            self.latent = LatentNet()
+        elif CONF.LATENTNET.USE_V2:
+            from ..modules.latentnet_v2 import LatentNet
             self.latent = LatentNet()
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
@@ -186,13 +192,17 @@ class SGN(MVXTwoStageDetector):
         else:
             img_feats = self.extract_feat(img=img) 
         
+        
         losses = dict()
         
-        if CONF.LATENTNET.USE:  # use KL part or not
-            # KL Part
+        if CONF.LATENTNET.USE_V1:
             losses_latent = self.forward_kl_train(img_feats, img_metas, target)
             losses.update(losses_latent)
-        
+        elif CONF.LATENTNET.USE_V2:
+            losses_latent = self.forward_kl_train(img, img_metas, target)
+            losses.update(losses_latent)
+            
+        return
         losses_pts = self.forward_pts_train(img_feats, img_metas, target)
         losses.update(losses_pts)
         return losses
@@ -226,8 +236,7 @@ class SGN(MVXTwoStageDetector):
         else:
             img_feats = self.extract_feat(img=img)  
         
-        if CONF.LATENTNET.USE:  # use KL part or not
-            # KL Part
+        if CONF.LATENTNET.USE_V1:
             self.forward_kl_test(img_feats, img_metas, target)
             
         outs = self.pts_bbox_head(img_feats, img_metas, target)

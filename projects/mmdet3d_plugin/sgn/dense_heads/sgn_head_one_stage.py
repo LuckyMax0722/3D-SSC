@@ -14,7 +14,7 @@ from projects.mmdet3d_plugin.sgn.utils.header import Header, SparseHeader
 from projects.mmdet3d_plugin.sgn.modules.sgb import SGB
 from projects.mmdet3d_plugin.sgn.modules.sdb import SDB
 from projects.mmdet3d_plugin.sgn.modules.flosp import FLoSP
-from projects.mmdet3d_plugin.sgn.modules.latentnet import Decoder
+from projects.mmdet3d_plugin.sgn.modules.latentnet_v1 import Decoder
 from projects.mmdet3d_plugin.sgn.utils.lovasz_losses import lovasz_softmax
 from projects.mmdet3d_plugin.sgn.utils.ssc_loss import sem_scal_loss, geo_scal_loss, CE_ssc_loss
 
@@ -61,8 +61,7 @@ class SGNHeadOne(nn.Module):
             self.class_weights = torch.from_numpy(np.array([0.464, 0.595, 0.865, 0.871, 0.717, 0.657, 0.852, 0.541, 0.602, 0.567, 0.607, 0.540, 0.636, 0.513, 0.564, 0.701, 0.774, 0.580, 0.690]))
         self.n_classes = len(self.class_names)
 
-        if CONF.LATENTNET.USE:  # use KL part or not
-            # KL Decoder
+        if CONF.LATENTNET.USE_V1:
             self.decoder = Decoder()
         
         self.flosp = FLoSP(scale_2d_list)
@@ -239,8 +238,7 @@ class SGNHeadOne(nn.Module):
             
             
 
-        if CONF.LATENTNET.USE:  # use KL part or not
-            # KL Part
+        if CONF.LATENTNET.USE_V1:
             mlvl_feats[0] = self.decoder.forward_image(mlvl_feats, img_metas, target)
         
         # View Transformation

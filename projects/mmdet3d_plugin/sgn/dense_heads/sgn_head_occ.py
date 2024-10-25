@@ -15,7 +15,7 @@ import spconv.pytorch as spconv
 
 from mmdet.models import HEADS
 from projects.mmdet3d_plugin.sgn.utils.ssc_loss import BCE_ssc_loss
-from projects.mmdet3d_plugin.sgn.modules.latentnet import Decoder
+from projects.mmdet3d_plugin.sgn.modules.latentnet_v1 import Decoder
 
 import sys
 import os
@@ -48,8 +48,9 @@ class SGNHeadOcc(nn.Module):
         self.voxelize = Voxelization(coors_range_xyz, spatial_shape)
         f = spatial_shape[-1]
 
-        if CONF.LATENTNET.USE:  # use KL part or not
-            # KL Decoder
+        # use KL part or not
+        # KL Decoder
+        if CONF.LATENTNET.USE_V1:  
             self.decoder = Decoder()
         
         self.pool = nn.MaxPool2d(2)  # [F=2; S=2; P=0; D=1]
@@ -122,8 +123,7 @@ class SGNHeadOcc(nn.Module):
         input = self.voxelize(points, batch_idx).permute(0, 3, 1, 2)  # torch.Size([1, 32, 256, 256])
         
         
-        if CONF.LATENTNET.USE:  # use KL part or not
-            # KL Part
+        if CONF.LATENTNET.USE_V1:
             input = self.decoder.forward_point(input, img_metas, target)
 
 
