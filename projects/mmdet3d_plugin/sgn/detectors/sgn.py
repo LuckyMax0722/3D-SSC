@@ -50,6 +50,9 @@ class SGN(MVXTwoStageDetector):
         elif CONF.LATENTNET.USE_V2:
             from ..modules.latentnet_v2 import LatentNet
             self.latent = LatentNet()
+        elif CONF.LATENTNET.USE_V3:
+            from ..modules.latentnet_v3 import LatentNet
+            self.latent = LatentNet()
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
         """Extract features of images."""
@@ -133,6 +136,15 @@ class SGN(MVXTwoStageDetector):
         """Forward function'
         """
         self.latent.forward_test(img_feats, img_metas, target)
+    
+    def forward_kl_v3_test(self,
+                          img_feats, 
+                          img_metas,
+                          target):
+        """Forward function'
+        """
+ 
+        return self.latent.forward_test(img_feats, img_metas, target)
 
         
     def forward(self, return_loss=True, **kwargs):
@@ -186,15 +198,17 @@ class SGN(MVXTwoStageDetector):
         # img size torch.Size([bs, 5, 3, H, W])
         img = img[:, -1, ...]  
         
+        losses = dict()
         
+        if CONF.LATENTNET.USE_V3:
+            losses_latent, img = self.forward_kl_train(img, img_metas, target)
+            losses.update(losses_latent)
+            
         if self.only_occ:
             img_feats = None
         else:
             img_feats = self.extract_feat(img=img) 
-        
-        
-        losses = dict()
-        
+     
         if CONF.LATENTNET.USE_V1:
             losses_latent = self.forward_kl_train(img_feats, img_metas, target)
             losses.update(losses_latent)
@@ -202,7 +216,7 @@ class SGN(MVXTwoStageDetector):
             losses_latent = self.forward_kl_train(img, img_metas, target)
             losses.update(losses_latent)
             
-        return
+        
         losses_pts = self.forward_pts_train(img_feats, img_metas, target)
         losses.update(losses_pts)
         return losses
@@ -231,6 +245,10 @@ class SGN(MVXTwoStageDetector):
         
         img_metas = [each[len_queue-1] for each in img_metas]
         img = img[:, -1, ...]
+        
+        if CONF.LATENTNET.USE_V3:
+            img = self.forward_kl_v3_test(img, img_metas, target)
+            
         if self.only_occ:
             img_feats = None
         else:

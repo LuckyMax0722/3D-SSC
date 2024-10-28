@@ -502,6 +502,56 @@ class SemanticKittiDataset(Dataset):
             pc_np = self.data_processor.downsample(pc_np.T)
             
             pc_np = self.data_processor.downsample_np(pc_np)  # [3, 40960]
+            
+        elif CONF.LATENTNET.USE_V3:
+            seq_len = len(self.poses[sequence])
+            depth_list = []
+
+            depth_path = os.path.join(
+                CONF.PATH.DATA_DATASETS_MSNET3D_DEPTH, "sequences", sequence, frame_id + ".npy"
+            )
+            
+            depth = np.load(depth_path)
+            
+            depth = depth[:self.img_H, :self.img_W]  # crop depth [H, W]
+            
+            depth = np.clip(depth, 0, 80) # max depth = 80
+            depth = depth / 80.0  # normalize
+            
+            depth = np.expand_dims(depth, axis=(0)) # [1, 370, 1220] [C, H, W]
+            
+            depth = torch.from_numpy(depth).float()
+            
+            depth_list.append(depth)
+            
+            # reference frame
+            for i in self.target_frames:
+                id = int(frame_id)
+
+                if id + i < 0 or id + i > seq_len-1:
+                    target_id = frame_id
+                else:
+                    target_id = str(id + i).zfill(6)
+                
+                depth_path = os.path.join(
+                    CONF.PATH.DATA_DATASETS_MSNET3D_DEPTH, "sequences", sequence, target_id + ".npy"
+                )
+                
+                depth = np.load(depth_path)
+                
+                depth = depth[:self.img_H, :self.img_W]  # crop depth [H, W]
+            
+                depth = np.clip(depth, 0, 80) # max depth = 80
+                depth = depth / 80.0  # normalize
+                
+                depth = np.expand_dims(depth, axis=(0)) # [1, 370, 1220] [C, H, W]
+                
+                depth = torch.from_numpy(depth).float()
+            
+                depth_list.append(depth)
+
+            depth_tensor = torch.stack(depth_list, dim=0) #[5, 1, 370, 1220]
+         
         else:
             pass
             
@@ -516,41 +566,8 @@ class SemanticKittiDataset(Dataset):
             target_1_2 = None
 
         
-        if CONF.LATENTNET.USE_V1:
-            meta_dict = dict(
-                sequence_id = sequence,
-                frame_id = frame_id,
-                lidar=pts_list,
-                target_1_2=target_1_2,
-                projected_pix=projected_pixs,
-                fov_mask=fov_masks, 
-                img_filename=image_paths,
-                lidar2img = lidar2img_rts,
-                lidar2cam=lidar2cam_rts,
-                cam_intrinsic=cam_intrinsics,
-                img_shape = [(self.img_H,self.img_W)],
-                # Lidar_Point_Voxel part
-                lidar_voxels = voxels,
-                lidar_coordinates = coordinates,
-                lidar_num_points = num_points,
-            )
-        elif CONF.LATENTNET.USE_V2:
-            meta_dict = dict(
-                sequence_id = sequence,
-                frame_id = frame_id,
-                lidar=pts_list,
-                target_1_2=target_1_2,
-                projected_pix=projected_pixs,
-                fov_mask=fov_masks, 
-                img_filename=image_paths,
-                lidar2img = lidar2img_rts,
-                lidar2cam=lidar2cam_rts,
-                cam_intrinsic=cam_intrinsics,
-                img_shape = [(self.img_H,self.img_W)],
-                pc = pc_np.astype(np.float32)
-            )
-        else:
-            meta_dict = dict(
+        # original
+        meta_dict = dict(
                 sequence_id = sequence,
                 frame_id = frame_id,
                 lidar=pts_list,
@@ -562,8 +579,19 @@ class SemanticKittiDataset(Dataset):
                 lidar2cam=lidar2cam_rts,
                 cam_intrinsic=cam_intrinsics,
                 img_shape = [(self.img_H,self.img_W)]
-            )
-
+        )
+        
+        if CONF.LATENTNET.USE_V1:
+            meta_dict['lidar_voxels'] = voxels
+            meta_dict['lidar_coordinates'] = coordinates
+            meta_dict['lidar_num_points'] = num_points
+        elif CONF.LATENTNET.USE_V2:
+            meta_dict['pc'] = pc_np.astype(np.float32)
+        elif CONF.LATENTNET.USE_V3:
+            meta_dict['depth_tensor'] = depth_tensor
+        else:
+            pass
+        
         return meta_dict
 
     def get_input_info(self, sequence, frame_id):
@@ -576,6 +604,64 @@ class SemanticKittiDataset(Dataset):
         Returns:
             torch.tensor: Img.
         """
+        
+        #  original
+        
+        seq_len = len(self.poses[sequence])
+        image_list = []
+
+        rgb_path = os.path.join(
+            self.data_root, "dataset", "sequences", sequence, "image_2", frame_id + ".png"
+        )
+        
+        img = Image.open(rgb_path).convert("RGB")
+        # Image augmentation
+        if self.color_jitter is not None:
+            img = self.color_jitter(img)
+        # PIL to numpy
+        img = np.array(img, dtype=np.float32, copy=False) / 255.0
+        img = img[:self.img_H, :self.img_W, :]  # crop image
+        img = self.normalize_rgb(img)
+        
+        image_list.append(img)
+
+        # reference frame
+        for i in self.target_frames:
+            id = int(frame_id)
+
+            if id + i < 0 or id + i > seq_len-1:
+                target_id = frame_id
+            else:
+                target_id = str(id + i).zfill(6)
+
+            rgb_path = os.path.join(
+                self.data_root, "dataset", "sequences", sequence, "image_2", target_id + ".png"
+            )
+            
+            img = Image.open(rgb_path).convert("RGB")
+            # Image augmentation
+            if self.color_jitter is not None:
+                img = self.color_jitter(img)
+            # PIL to numpy
+            img = np.array(img, dtype=np.float32, copy=False) / 255.0
+            img = img[:self.img_H, :self.img_W, :]  # crop image
+
+            img = self.normalize_rgb(img)
+
+            image_list.append(img)
+
+        image_tensor = torch.stack(image_list, dim=0) #[N, 3, 370, 1220]
+         
+        return image_tensor
+        
+        
+        
+        ##############################################
+        # Warning!!!!!!!!! Still not finish
+        ##############################################
+        
+        
+        
         if CONF.LATENTNET.USE_V2:
             seq_len = len(self.poses[sequence])
             image_list = []
@@ -589,7 +675,11 @@ class SemanticKittiDataset(Dataset):
                 img = self.color_jitter(img)
             # PIL to numpy
             img = np.array(img, dtype=np.float32, copy=False) / 255.0
-            img = img[:self.img_H, :self.img_W, :]  # crop image
+            
+            import cv2
+            
+            img = cv2.resize(img, (512, 160), interpolation=cv2.INTER_LINEAR)
+            
             image_list.append(self.normalize_rgb(img))
 
             # reference frame
@@ -610,61 +700,19 @@ class SemanticKittiDataset(Dataset):
                     img = self.color_jitter(img)
                 # PIL to numpy
                 img = np.array(img, dtype=np.float32, copy=False) / 255.0
-                print('img:', img.shape)
 
-                import cv2
-                img = cv2.resize(img,
-                            (int(160)),
-                            int(512)),
-                            interpolation=cv2.INTER_LINEAR)
-                #img = img[:self.img_H, :self.img_W, :]  # crop image
+                img = cv2.resize(img, (512, 160), interpolation=cv2.INTER_LINEAR)
+                
+                img = self.normalize_rgb(img)
+                
+                image_list.append(img)
 
-                image_list.append(self.normalize_rgb(img))
-
-            image_tensor = torch.stack(image_list, dim=0) #[N, 3, 370, 1220]
+            image_tensor = torch.stack(image_list, dim=0) #[5, 3, 160, 512]
 
             return image_tensor
-        else:
-            seq_len = len(self.poses[sequence])
-            image_list = []
+            
 
-            rgb_path = os.path.join(
-                self.data_root, "dataset", "sequences", sequence, "image_2", frame_id + ".png"
-            )
-            img = Image.open(rgb_path).convert("RGB")
-            # Image augmentation
-            if self.color_jitter is not None:
-                img = self.color_jitter(img)
-            # PIL to numpy
-            img = np.array(img, dtype=np.float32, copy=False) / 255.0
-            img = img[:self.img_H, :self.img_W, :]  # crop image
-            image_list.append(self.normalize_rgb(img))
-
-            # reference frame
-            for i in self.target_frames:
-                id = int(frame_id)
-
-                if id + i < 0 or id + i > seq_len-1:
-                    target_id = frame_id
-                else:
-                    target_id = str(id + i).zfill(6)
-
-                rgb_path = os.path.join(
-                    self.data_root, "dataset", "sequences", sequence, "image_2", target_id + ".png"
-                )
-                img = Image.open(rgb_path).convert("RGB")
-                # Image augmentation
-                if self.color_jitter is not None:
-                    img = self.color_jitter(img)
-                # PIL to numpy
-                img = np.array(img, dtype=np.float32, copy=False) / 255.0
-                img = img[:self.img_H, :self.img_W, :]  # crop image
-
-                image_list.append(self.normalize_rgb(img))
-
-            image_tensor = torch.stack(image_list, dim=0) #[N, 3, 370, 1220]
-
-            return image_tensor
+            
 
     def get_gt_info(self, sequence, frame_id):
         """Get the ground truth.

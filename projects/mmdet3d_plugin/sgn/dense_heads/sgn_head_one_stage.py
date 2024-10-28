@@ -267,7 +267,6 @@ class SGNHeadOne(nn.Module):
         # Compute seed features
         # bs = 1
         # x3d size torch.Size([1, 128, 262144])
-        # x3d size torch.Size([2, 128, 262144])
         
         seed_feats = x3d[0, :, vox_coords[unmasked_idx[0], 3]].permute(1, 0)
         seed_coords = vox_coords[unmasked_idx[0], :3]
