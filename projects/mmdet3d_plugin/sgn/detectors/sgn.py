@@ -4,7 +4,7 @@ from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
 import torch
 
 
-
+import torch.nn as nn
 
 
 import sys
@@ -48,11 +48,17 @@ class SGN(MVXTwoStageDetector):
             from ..modules.latentnet_v1 import LatentNet
             self.latent = LatentNet()
         elif CONF.LATENTNET.USE_V2:
-            from ..modules.latentnet_v2 import LatentNet
-            self.latent = LatentNet()
+            self.Image_decoder_block1 = nn.Sequential(  
+                nn.Conv2d(4, 3, kernel_size=3, padding=1, stride=1),
+                nn.ReLU(),
+                nn.Conv2d(3, 3, kernel_size=3, padding=1, stride=1),
+                nn.ReLU(),
+            )
         elif CONF.LATENTNET.USE_V3:
             from ..modules.latentnet_v3 import LatentNet
             self.latent = LatentNet()
+            
+            
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
         """Extract features of images."""
@@ -198,12 +204,26 @@ class SGN(MVXTwoStageDetector):
         # img size torch.Size([bs, 5, 3, H, W])
         img = img[:, -1, ...]  
         
+        img_metas[0]['mode'] = 'train'
+        
         losses = dict()
         
-        if CONF.LATENTNET.USE_V3:
+        if CONF.LATENTNET.USE_V2:
+            # Img + Depth Imag
+            device = img.device
+            
+            depth = img_metas[0]['depth_tensor'].to(device)  # torch.Size([5, 1, 370, 1220])
+            
+            img = torch.cat((img[0], depth), dim=1)  # torch.Size([5, 4, 370, 1220])
+            
+            img = self.Image_decoder_block1(img)  # torch.Size([5, 3, 370, 1220])
+            
+            img = img.unsqueeze(0)  # torch.Size([1, 5, 3, 370, 1220])
+
+        elif CONF.LATENTNET.USE_V3:
             losses_latent, img = self.forward_kl_train(img, img_metas, target)
             losses.update(losses_latent)
-            
+        
         if self.only_occ:
             img_feats = None
         else:
@@ -212,10 +232,8 @@ class SGN(MVXTwoStageDetector):
         if CONF.LATENTNET.USE_V1:
             losses_latent = self.forward_kl_train(img_feats, img_metas, target)
             losses.update(losses_latent)
-        elif CONF.LATENTNET.USE_V2:
-            losses_latent = self.forward_kl_train(img, img_metas, target)
-            losses.update(losses_latent)
-            
+        
+        
         
         losses_pts = self.forward_pts_train(img_feats, img_metas, target)
         losses.update(losses_pts)
@@ -246,9 +264,23 @@ class SGN(MVXTwoStageDetector):
         img_metas = [each[len_queue-1] for each in img_metas]
         img = img[:, -1, ...]
         
-        if CONF.LATENTNET.USE_V3:
-            img = self.forward_kl_v3_test(img, img_metas, target)
+        img_metas[0]['mode'] = 'test'
+        
+        if CONF.LATENTNET.USE_V2:
+            # Img + Depth Imag
+            device = img.device
             
+            depth = img_metas[0]['depth_tensor'].to(device)  # torch.Size([5, 1, 370, 1220])
+            
+            img = torch.cat((img[0], depth), dim=1)  # torch.Size([5, 4, 370, 1220])
+            
+            img = self.Image_decoder_block1(img)  # torch.Size([5, 3, 370, 1220])
+            
+            img = img.unsqueeze(0)  # torch.Size([1, 5, 3, 370, 1220])
+            
+        elif CONF.LATENTNET.USE_V3:
+            img = self.forward_kl_v3_test(img, img_metas, target)       
+
         if self.only_occ:
             img_feats = None
         else:

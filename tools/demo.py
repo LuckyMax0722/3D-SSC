@@ -103,8 +103,6 @@ def parse_args():
 
     return args
 
-# python -m torch.distributed.launch --nproc_per_node=1 /u/home/caoh/projects/MA_Jiachen/SGN/tools/demo.py
-
 def main():
     args = parse_args()
 

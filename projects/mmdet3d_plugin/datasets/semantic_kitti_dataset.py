@@ -491,19 +491,8 @@ class SemanticKittiDataset(Dataset):
 
             # add 0 as batch size
             coordinates = np.hstack((np.zeros((n, 1)), coordinates))
-            
-        elif CONF.LATENTNET.USE_V2:
-
-            pc_np = self.data_processor.mask_points(pts_list)
-        
-            if self.split == 'train' or self.split == 'val':
-                pc_np = self.data_processor.shuffle_points(pc_np)
-            
-            pc_np = self.data_processor.downsample(pc_np.T)
-            
-            pc_np = self.data_processor.downsample_np(pc_np)  # [3, 40960]
-            
-        elif CONF.LATENTNET.USE_V3:
+          
+        elif CONF.LATENTNET.USE_V2 or CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V4:
             seq_len = len(self.poses[sequence])
             depth_list = []
 
@@ -551,9 +540,6 @@ class SemanticKittiDataset(Dataset):
                 depth_list.append(depth)
 
             depth_tensor = torch.stack(depth_list, dim=0) #[5, 1, 370, 1220]
-         
-        else:
-            pass
             
         # load ground truth
         if self.split == 'train' or self.split == 'val':
@@ -585,9 +571,7 @@ class SemanticKittiDataset(Dataset):
             meta_dict['lidar_voxels'] = voxels
             meta_dict['lidar_coordinates'] = coordinates
             meta_dict['lidar_num_points'] = num_points
-        elif CONF.LATENTNET.USE_V2:
-            meta_dict['pc'] = pc_np.astype(np.float32)
-        elif CONF.LATENTNET.USE_V3:
+        elif CONF.LATENTNET.USE_V2 or CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V4:
             meta_dict['depth_tensor'] = depth_tensor
         else:
             pass

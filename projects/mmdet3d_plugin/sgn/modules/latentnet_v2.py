@@ -4,17 +4,13 @@ import torch.nn.functional as F
 import os
 import sys
 
-from .pointTransformer.point_transformer import PointsEncoder_pointwise
-from .network_img.resnet import Image_ResNet
-
 class LatentNet(nn.Module):
     def __init__(self):
         super().__init__()
         
         # 1. Hyperparemeters
         
-        self.point_transformer = PointsEncoder_pointwise(is_pc_norm = False)
-        self.resnet = Image_ResNet()
+
         
     
     def forward_train(self, img, img_metas, target):

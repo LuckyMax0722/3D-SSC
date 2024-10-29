@@ -63,6 +63,9 @@ class SGNHeadOne(nn.Module):
 
         if CONF.LATENTNET.USE_V1:
             self.decoder = Decoder()
+        elif CONF.LATENTNET.USE_V4:
+            from ..modules.latentnet_v4 import LatentNet
+            self.latent = LatentNet()
         
         self.flosp = FLoSP(scale_2d_list)
         self.bottleneck = nn.Conv3d(self.embed_dims, self.embed_dims, kernel_size=3, padding=1)
@@ -90,115 +93,6 @@ class SGNHeadOne(nn.Module):
         self.sem_scal_loss = sem_scal_loss
         self.geo_scal_loss = geo_scal_loss
         self.save_flag = save_flag
-    
-    '''    
-    def forward(self, mlvl_feats, img_metas, target):
-        """Forward function.
-        Args:
-            mlvl_feats (tuple[Tensor]): Features from the upstream
-                network, each is a 5D-tensor with shape
-                (B, N, C, H, W).
-                torch.Size([1, 5, 128, 24, 77])
-            img_metas: Meta information such as camera intrinsics.
-                dict
-            target: Semantic completion ground truth. 
-                torch.Size([1, 256, 256, 32])
-        Returns:
-            ssc_logit (Tensor): Outputs from the segmentation head.
-        """
-        outs = []
-        
-        B = len(img_metas) # bs
-        
-        mlvl_feats = mlvl_feats[0] # tensor (B, N, C, H, W)
-        out = {}
-        
-        for i in range(B):
-            # match the mlvl_feats shape
-            mlvl_feats_ = mlvl_feats[i] # tensor (N, C, H, W)
-            mlvl_feats_ = mlvl_feats_.unsqueeze(0) # tensor (1, N, C, H, W)
-            mlvl_feats_ = [mlvl_feats_]
-            
-            img_metas_ = img_metas[i]
-            img_metas_ = [img_metas_]
-            
-            target_ = target[i]
-            target_ = target_.unsqueeze(0)
-            
-            
-            debug = True
-        
-            if 0:
-                print('===============')
-                print('mlvl_feats_')
-                print(type(mlvl_feats_))  # list
-                print(len(mlvl_feats_)) # 1
-                print(mlvl_feats_[0].size())  # torch.Size([1, 5, 128, 24, 77])
-                print('===============')
-                print('img_metas_')
-                print(type(img_metas_)) # list
-                print(len(img_metas_)) # 1
-                print(img_metas_[0]) # dict
-                print('===============')
-                print('target_')
-                print(type(target_))  # tensor
-                print(len(target_)) # 1
-                print(target_.size()) # torch.Size([1, 256, 256, 32])
-                print(target_[0].size()) # torch.Size([256, 256, 32])
-            
-            x3d = self.flosp(mlvl_feats_, img_metas_) # bs, c, nq
-            bs, c, _ = x3d.shape
-            x3d = self.bottleneck(x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z))
-            occ = self.occ_header(x3d).squeeze(1)
-            out["occ"] = occ
-
-            x3d = x3d.reshape(bs, c, -1)
-            # Load proposals
-            pts_out = self.pts_header(mlvl_feats_, img_metas_, target_)
-            pts_occ = pts_out['occ_logit'].squeeze(1)
-            proposal =  (pts_occ > 0).float().detach().cpu().numpy()
-            out['pts_occ'] = pts_occ
-
-            if proposal.sum() < 2:
-                proposal = np.ones_like(proposal)
-            unmasked_idx = np.asarray(np.where(proposal.reshape(-1)>0)).astype(np.int32)
-            masked_idx = np.asarray(np.where(proposal.reshape(-1)==0)).astype(np.int32)
-            vox_coords = self.get_voxel_indices()
-
-            # Compute seed features
-            seed_feats = x3d[0, :, vox_coords[unmasked_idx[0], 3]].permute(1, 0)
-            seed_coords = vox_coords[unmasked_idx[0], :3]
-            coords_torch = torch.from_numpy(np.concatenate(
-                [np.zeros_like(seed_coords[:, :1]), seed_coords], axis=1)).to(seed_feats.device)
-            seed_feats_desc = self.sgb(seed_feats, coords_torch)
-            sem = self.sem_header(seed_feats_desc)
-            out["sem_logit"] = sem
-            out["coords"] = seed_coords
-
-            # Complete voxel features
-            vox_feats = torch.empty((self.bev_h, self.bev_w, self.bev_z, self.embed_dims), device=x3d.device)
-            vox_feats_flatten = vox_feats.reshape(-1, self.embed_dims)
-            vox_feats_flatten[vox_coords[unmasked_idx[0], 3], :] = seed_feats_desc
-            vox_feats_flatten[vox_coords[masked_idx[0], 3], :] = self.mlp_prior(x3d[0, :, vox_coords[masked_idx[0], 3]].permute(1, 0))
-
-            vox_feats_diff = vox_feats_flatten.reshape(self.bev_h, self.bev_w, self.bev_z, self.embed_dims).permute(3, 0, 1, 2).unsqueeze(0)
-            if self.pts_header.guidance:
-                vox_feats_diff = torch.cat([vox_feats_diff, pts_out['occ_x']], dim=1)
-            vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z
-            ssc_dict, ssc_logit = self.ssc_header(vox_feats_diff)
-
-            out.update(ssc_dict)
-            
-            outs.append(out)
-        
-        if 1:
-            print('===============')
-            print('outs')
-            print(type(outs))  # list
-            print(len(outs)) # 1
-            print(outs[0])
-        return outs
-        '''
 
     def forward(self, mlvl_feats, img_metas, target):
         """Forward function.
@@ -244,7 +138,18 @@ class SGNHeadOne(nn.Module):
         # View Transformation
         x3d = self.flosp(mlvl_feats, img_metas) # bs, c, nq --> torch.Size([1, 128, 262144])
         bs, c, _ = x3d.shape
-        x3d = self.bottleneck(x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z))  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
+        x3d = x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z)  # torch.Size([1, 128, 128, 128, 16])
+        x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
+        
+        if CONF.LATENTNET.USE_V4:
+            if img_metas[0]['mode'] == 'train':
+                x3d, lattent_loss = self.latent.forward_train(x3d, target)
+                out['lattent_loss'] = lattent_loss
+            elif img_metas[0]['mode'] == 'test':
+                x3d = self.latent.forward_test(x3d)
+
+        
+        x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
         
         # Geometry Guidance --> SDB + 3D Conv
         occ = self.occ_header(x3d).squeeze(1) # ([1, 128, 128, 16])
@@ -361,6 +266,9 @@ class SGNHeadOne(nn.Module):
 
             loss_dict['loss_pts'] = F.binary_cross_entropy(out_dict['pts_occ'].sigmoid()[target_2_binary!=255], target_2_binary[target_2_binary!=255].float())
 
+            if CONF.LATENTNET.USE_V4:
+                loss_dict['loss_latent'] = out_dict['lattent_loss']
+                
             return loss_dict
 
         elif step_type== "val" or "test":
