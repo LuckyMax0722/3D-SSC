@@ -40,7 +40,16 @@ class LatentNet(nn.Module):
         '''
         input:
             target: torch.Size([1, 256, 256, 32])
-            x3d: torch.Size([1, 128, 262144])
+            x3d: torch.Size([1, 128, 128, 128, 16])
+        '''
+        
+        # dim change
+        target = target.unsqueeze(1).permute(0, 1, 4, 3, 2)  # torch.Size([1, 1, 32, 256, 256])
+        x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 16, 128, 128]      
+        
+        '''
+            target: torch.Size([1, 1, 32, 256, 256])
+            x3d: torch.Size([1, 128, 16, 128, 128])
         '''
         
         # Encoder x
@@ -63,9 +72,15 @@ class LatentNet(nn.Module):
     def forward_test(self, x3d):
         '''
         input:
-            target: torch.Size([1, 256, 256, 32])
-            x3d: torch.Size([1, 128, 262144])
+            x3d: torch.Size([1, 128, 128, 128, 16])
         '''
+        
+        x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 16, 128, 128]      
+        
+        '''
+            x3d: torch.Size([1, 128, 16, 128, 128])
+        '''
+        
         # Encoder x
         self.prior, mux, logvarx = self.x_encoder(x3d)
         

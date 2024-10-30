@@ -148,7 +148,6 @@ class SGNHeadOne(nn.Module):
             elif img_metas[0]['mode'] == 'test':
                 x3d = self.latent.forward_test(x3d)
 
-        
         x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
         
         # Geometry Guidance --> SDB + 3D Conv
@@ -160,6 +159,7 @@ class SGNHeadOne(nn.Module):
         # Load proposals
         pts_out = self.pts_header(mlvl_feats, img_metas, target)
         pts_occ = pts_out['occ_logit'].squeeze(1)
+
         proposal =  (pts_occ > 0).float().detach().cpu().numpy()
         out['pts_occ'] = pts_occ
 

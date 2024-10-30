@@ -13,8 +13,10 @@ class Decoder(nn.Module):
         
         self.Voxel_encoder_block1 = nn.Sequential(
             nn.Conv3d(int(voxel_channel), int(voxel_channel // 2), kernel_size=3, padding=1),
+            nn.LayerNorm([int(voxel_channel // 2), *[16, 128, 128]]),
             nn.ReLU(),
             nn.Conv3d(int(voxel_channel // 2), int(voxel_channel // 2), kernel_size=3, padding=1),
+            nn.LayerNorm([int(voxel_channel // 2), *[16, 128, 128]]),
             nn.ReLU(),
         )
         
@@ -35,14 +37,14 @@ class Decoder(nn.Module):
         self.device = x.device
         
         z = torch.unsqueeze(z, 2)
-        z = self.tile(z, 2, x.shape[self.spatial_axes[0]])  # torch.Size([1, 128, 128])
+        z = self.tile(z, 2, x.shape[self.spatial_axes[0]])  # torch.Size([1, 128, 16])
         z = torch.unsqueeze(z, 3)
-        z = self.tile(z, 3, x.shape[self.spatial_axes[1]])  # torch.Size([1, 128, 128])
+        z = self.tile(z, 3, x.shape[self.spatial_axes[1]])  # torch.Size([1, 128, 16, 128])
         z = torch.unsqueeze(z, 4)
-        z = self.tile(z, 4, x.shape[self.spatial_axes[2]])  # torch.Size([1, 128, 128, 32])
+        z = self.tile(z, 4, x.shape[self.spatial_axes[2]])  # torch.Size([1, 128, 16, 128, 128])
         
-        x = torch.cat((x, z), 1)  # torch.Size([1, 256, 128, 128, 16])
+        x = torch.cat((x, z), 1)  # torch.Size([1, 256, 16, 128, 128])
         
-        x = self.Voxel_encoder_block1(x)
+        x = self.Voxel_encoder_block1(x)  # torch.Size([1, 128, 16, 128, 128])
         
-        return x  # torch.Size([1, 128, 128, 128, 16])
+        return x.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 128, 128, 16])

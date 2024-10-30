@@ -109,6 +109,7 @@ class SGNHeadOcc(nn.Module):
         self.guidance = guidance
         self.seg_head_1_2 = SegmentationHead(1, 8, self.nbr_classes, [1, 2, 3], guidance=guidance)
 
+
     def forward(self,  mlvl_feats, img_metas, target):
         device = target.device
         points = []
@@ -154,11 +155,13 @@ class SGNHeadOcc(nn.Module):
         out = F.relu(self.conv1_2(out)) # torch.Size([1, 48, 128, 128])
         out_scale_1_2__2D = self.conv_out_scale_1_2(out) # torch.Size([1, 16, 128, 128])
 
-        out_scale_1_2__3D, out_guidance = self.seg_head_1_2(out_scale_1_2__2D) # [1, 20, 16, 128, 128]
-        out_scale_1_2__3D = out_scale_1_2__3D.permute(0, 1, 3, 4, 2) # [1, 20, 128, 128, 16]
+        out_scale_1_2__3D, out_guidance = self.seg_head_1_2(out_scale_1_2__2D) 
+        # out_scale_1_2__3D: torch.Size([1, 1, 16, 128, 128])
+        
+        out_scale_1_2__3D = out_scale_1_2__3D.permute(0, 1, 3, 4, 2) # torch.Size([1, 1, 128, 128, 16])
 
         out = {}
-        out['occ_logit'] = out_scale_1_2__3D  # [1, 20, 128, 128, 16]
+        out['occ_logit'] = out_scale_1_2__3D  # torch.Size([1, 1, 128, 128, 16])
         out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 128, 128, 16])
 
         return out
@@ -183,7 +186,6 @@ class SGNHeadOcc(nn.Module):
             class_weights = self.class_weights.type_as(target)
             loss_occ = BCE_ssc_loss(out_dict['occ_logit'], target, class_weights, self.alpha)
             loss_dict['loss_occ'] = loss_occ
-
             return loss_dict
 
         elif step_type== "val" or "test":
@@ -320,7 +322,7 @@ class SegmentationHead(nn.Module):
     if self.guidance:
         x_g = self.guidance_layer(x_in)
 
-    x_in = self.conv_classes(x_in)
+    x_in = self.conv_classes(x_in)  # x_in" torch.Size([1, 1, 16, 128, 128])
 
     if self.guidance:
         return x_in, x_g
