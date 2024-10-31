@@ -158,17 +158,27 @@ class SGNHeadOne(nn.Module):
         
         # Load proposals
         pts_out = self.pts_header(mlvl_feats, img_metas, target)
-        pts_occ = pts_out['occ_logit'].squeeze(1)
+        pts_occ = pts_out['occ_logit'].squeeze(1)  # pts_occ: torch.Size([1, 16, 128, 128])
 
-        proposal =  (pts_occ > 0).float().detach().cpu().numpy()
-        out['pts_occ'] = pts_occ
+        proposal =  (pts_occ > 0).float().detach().cpu().numpy()  # (1, 128, 128, 16)
+        out['pts_occ'] = pts_occ  # x_in: torch.Size([1, 16, 128, 128])
 
         if proposal.sum() < 2:
             proposal = np.ones_like(proposal)
-        unmasked_idx = np.asarray(np.where(proposal.reshape(-1)>0)).astype(np.int32)
+        unmasked_idx = np.asarray(np.where(proposal.reshape(-1)>0)).astype(np.int32)  # [[     0      1      2 ... 262132 262136 262142]]
         masked_idx = np.asarray(np.where(proposal.reshape(-1)==0)).astype(np.int32)
-        vox_coords = self.get_voxel_indices()
+        vox_coords = self.get_voxel_indices()  # vox_coords: (262144, 4)
 
+        # vox_coords
+        # [[     0      0      0      0]
+        # [     0      0      1      1]
+        # [     0      0      2      2]
+        # ...
+        # [   127    127     13 262141]
+        # [   127    127     14 262142]
+        # [   127    127     15 262143]]
+
+        
         # Compute seed features
         # bs = 1
         # x3d size torch.Size([1, 128, 262144])
@@ -177,13 +187,14 @@ class SGNHeadOne(nn.Module):
         seed_coords = vox_coords[unmasked_idx[0], :3]
         coords_torch = torch.from_numpy(np.concatenate(
             [np.zeros_like(seed_coords[:, :1]), seed_coords], axis=1)).to(seed_feats.device)
-        seed_feats_desc = self.sgb(seed_feats, coords_torch)
+        seed_feats_desc = self.sgb(seed_feats, coords_torch)  # torch.Size([*227962, 128])
         sem = self.sem_header(seed_feats_desc)
-        out["sem_logit"] = sem
+        
+        out["sem_logit"] = sem  # torch.Size([*227955, 20])
         out["coords"] = seed_coords
 
         # Complete voxel features
-        vox_feats = torch.empty((self.bev_h, self.bev_w, self.bev_z, self.embed_dims), device=x3d.device)
+        vox_feats = torch.empty((self.bev_h, self.bev_w, self.bev_z, self.embed_dims), device=x3d.device)  # torch.Size([128, 128, 16, 128])
         vox_feats_flatten = vox_feats.reshape(-1, self.embed_dims)
         vox_feats_flatten[vox_coords[unmasked_idx[0], 3], :] = seed_feats_desc
         vox_feats_flatten[vox_coords[masked_idx[0], 3], :] = self.mlp_prior(x3d[0, :, vox_coords[masked_idx[0], 3]].permute(1, 0))

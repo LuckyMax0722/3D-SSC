@@ -47,7 +47,7 @@ class SGN(MVXTwoStageDetector):
         if CONF.LATENTNET.USE_V1:
             from ..modules.latentnet_v1 import LatentNet
             self.latent = LatentNet()
-        elif CONF.LATENTNET.USE_V2:
+        elif CONF.FUSION.USE_V1:
             self.Image_decoder_block1 = nn.Sequential(  
                 nn.Conv2d(4, 3, kernel_size=3, padding=1, stride=1),
                 nn.ReLU(),
@@ -208,7 +208,7 @@ class SGN(MVXTwoStageDetector):
         
         losses = dict()
         
-        if CONF.LATENTNET.USE_V2:
+        if CONF.FUSION.USE_V1:
             # Img + Depth Imag
             device = img.device
             
@@ -266,7 +266,7 @@ class SGN(MVXTwoStageDetector):
         
         img_metas[0]['mode'] = 'test'
         
-        if CONF.LATENTNET.USE_V2:
+        if CONF.FUSION.USE_V1:
             # Img + Depth Imag
             device = img.device
             

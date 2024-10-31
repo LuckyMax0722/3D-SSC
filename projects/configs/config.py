@@ -51,11 +51,20 @@ CONF.LATENTNET = EasyDict()
 
 # TODO: activate or deactivate KL part
 CONF.LATENTNET.USE_V1 = False
-CONF.LATENTNET.USE_V2 = False
 CONF.LATENTNET.USE_V3 = False
-CONF.LATENTNET.USE_V4 = True
-
+CONF.LATENTNET.USE_V4 = False
 CONF.LATENTNET.LATENT_DIM = 128
+
+# TODO: activate or deactivate Image+Depth part
+CONF.FUSION = EasyDict()
+CONF.FUSION.USE_V1 = False
+
+# TODO: activate or deactivate Image+Depth part
+CONF.COMPLETION = EasyDict()
+CONF.COMPLETION.USE_V1 = False
+
+
+
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()

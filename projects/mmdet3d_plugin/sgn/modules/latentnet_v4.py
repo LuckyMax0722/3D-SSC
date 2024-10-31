@@ -61,7 +61,7 @@ class LatentNet(nn.Module):
         self.posterior, muxy, logvarxy = self.xy_encoder(x3d, target)
         
         z_noise_post = self.reparametrize(muxy, logvarxy) 
-        
+
         x3d = self.decoder.forward_voxel(x3d, z_noise_post)
         
         lattent_loss = torch.mean(self.kl_divergence(self.posterior, self.prior))

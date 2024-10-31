@@ -64,17 +64,6 @@ class SemanticKittiDataset(Dataset):
                 voxel_size = voxel_size
             )
         
-        elif CONF.LATENTNET.USE_V2:
-            point_cloud_range = CONF.KITTI.POINT_CLOUD_RANGE
-            voxel_size = CONF.KITTI.VOXEL_SIZE
-            input_pt_num = CONF.VP2P.INPUT_PT_NUM
-            
-            self.data_processor = DataProcessorV2(
-                point_cloud_range = point_cloud_range, 
-                voxel_size = voxel_size,
-                input_pt_num = input_pt_num,
-            )
-        
         self.data_root = data_root
         self.label_root = os.path.join(preprocess_root, labels_tag)
         self.depth_query = "msnet3d"
@@ -492,7 +481,7 @@ class SemanticKittiDataset(Dataset):
             # add 0 as batch size
             coordinates = np.hstack((np.zeros((n, 1)), coordinates))
           
-        elif CONF.LATENTNET.USE_V2 or CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V4:
+        elif CONF.FUSION.USE_V1 or CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V4:
             seq_len = len(self.poses[sequence])
             depth_list = []
 
@@ -571,7 +560,7 @@ class SemanticKittiDataset(Dataset):
             meta_dict['lidar_voxels'] = voxels
             meta_dict['lidar_coordinates'] = coordinates
             meta_dict['lidar_num_points'] = num_points
-        elif CONF.LATENTNET.USE_V2 or CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V4:
+        elif CONF.FUSION.USE_V1 or CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V4:
             meta_dict['depth_tensor'] = depth_tensor
         else:
             pass
@@ -637,66 +626,6 @@ class SemanticKittiDataset(Dataset):
         image_tensor = torch.stack(image_list, dim=0) #[N, 3, 370, 1220]
          
         return image_tensor
-        
-        
-        
-        ##############################################
-        # Warning!!!!!!!!! Still not finish
-        ##############################################
-        
-        
-        
-        if CONF.LATENTNET.USE_V2:
-            seq_len = len(self.poses[sequence])
-            image_list = []
-
-            rgb_path = os.path.join(
-                self.data_root, "dataset", "sequences", sequence, "image_2", frame_id + ".png"
-            )
-            img = Image.open(rgb_path).convert("RGB")
-            # Image augmentation
-            if self.color_jitter is not None:
-                img = self.color_jitter(img)
-            # PIL to numpy
-            img = np.array(img, dtype=np.float32, copy=False) / 255.0
-            
-            import cv2
-            
-            img = cv2.resize(img, (512, 160), interpolation=cv2.INTER_LINEAR)
-            
-            image_list.append(self.normalize_rgb(img))
-
-            # reference frame
-            for i in self.target_frames:
-                id = int(frame_id)
-
-                if id + i < 0 or id + i > seq_len-1:
-                    target_id = frame_id
-                else:
-                    target_id = str(id + i).zfill(6)
-
-                rgb_path = os.path.join(
-                    self.data_root, "dataset", "sequences", sequence, "image_2", target_id + ".png"
-                )
-                img = Image.open(rgb_path).convert("RGB")
-                # Image augmentation
-                if self.color_jitter is not None:
-                    img = self.color_jitter(img)
-                # PIL to numpy
-                img = np.array(img, dtype=np.float32, copy=False) / 255.0
-
-                img = cv2.resize(img, (512, 160), interpolation=cv2.INTER_LINEAR)
-                
-                img = self.normalize_rgb(img)
-                
-                image_list.append(img)
-
-            image_tensor = torch.stack(image_list, dim=0) #[5, 3, 160, 512]
-
-            return image_tensor
-            
-
-            
 
     def get_gt_info(self, sequence, frame_id):
         """Get the ground truth.
@@ -940,54 +869,6 @@ class DataProcessorV1(object):
             voxels = voxels[..., 3:]  # remove xyz in voxels(N, 3)
             
         return voxels, coordinates, num_points
-
-class DataProcessorV2:
-    def __init__(self, point_cloud_range, voxel_size, input_pt_num):
-        self.point_cloud_range = point_cloud_range
-        self.voxel_grid_downsample_size = voxel_size[0]
-        self.num_pc = input_pt_num
-        
-    def mask_points_by_range(self, points, limit_range):
-        mask = (points[:, 0] >= limit_range[0]) & (points[:, 0] <= limit_range[3]) \
-            & (points[:, 1] >= limit_range[1]) & (points[:, 1] <= limit_range[4])
-        return mask
-
-    def mask_points(self, points):
-        mask = self.mask_points_by_range(points, self.point_cloud_range)
-        
-        return points[mask]
-            
-    def shuffle_points(self, points):
-        shuffle_idx = np.random.permutation(points.shape[0])
-        points = points[shuffle_idx]
-
-        return points
-    
-    def downsample(self, pointcloud):
-        pcd=o3d.geometry.PointCloud()
-        pcd.points=o3d.utility.Vector3dVector(np.transpose(pointcloud))
-
-        fake_colors=np.zeros((pointcloud.shape[1],3))
-
-        pcd.colors=o3d.utility.Vector3dVector(fake_colors)
-
-        down_pcd=pcd.voxel_down_sample(voxel_size=self.voxel_grid_downsample_size)
-        down_pcd_points=np.transpose(np.asarray(down_pcd.points))
-
-        return down_pcd_points
-    
-    def downsample_np(self, pc_np):
-        if pc_np.shape[1] >= self.num_pc:
-            choice_idx = np.random.choice(pc_np.shape[1], self.num_pc, replace=False)
-        else:
-            fix_idx = np.asarray(range(pc_np.shape[1]))
-            while pc_np.shape[1] + fix_idx.shape[0] < self.num_pc:
-                fix_idx = np.concatenate((fix_idx, np.asarray(range(pc_np.shape[1]))), axis=0)
-            random_idx = np.random.choice(pc_np.shape[1], self.num_pc - fix_idx.shape[0], replace=False)
-            choice_idx = np.concatenate((fix_idx, random_idx), axis=0)
-        pc_np = pc_np[:, choice_idx]
-        
-        return pc_np
     
 def vox2world(vol_origin, vox_coords, vox_size, offsets=(0.5, 0.5, 0.5)):
         """Convert voxel grid coordinates to world coordinates."""
@@ -997,7 +878,6 @@ def vox2world(vol_origin, vox_coords, vox_size, offsets=(0.5, 0.5, 0.5)):
         cam_pts = vol_origin[None] + vox_size*(vox_coords + offsets[None])
 
         return cam_pts
-
 
 def cam2pix(cam_pts, intr):
     """Convert camera coordinates to pixel coordinates."""
@@ -1012,15 +892,3 @@ def rigid_transform(xyz, transform):
     xyz_h = np.hstack([xyz, np.ones((len(xyz), 1), dtype=np.float32)])
     xyz_t_h = np.dot(transform, xyz_h.T).T
     return xyz_t_h[:, :3]
-    
-def get_pointcloud(self, pc_folder, seq_i):
-    pc_path = os.path.join(pc_folder, '%06d.npy' % seq_i)
-    npy_data = np.load(pc_path).astype(np.float32)
-    # shuffle the point cloud data, this is necessary!
-    npy_data = npy_data[:, np.random.permutation(npy_data.shape[1])]
-    pc_np = npy_data[0:3, :]  # 3xN
-    intensity_np = npy_data[3:4, :]  # 1xN
-    sn_np = npy_data[4:7, :]  # 3xN
-
-    return pc_np, intensity_np, sn_np
-    

@@ -322,7 +322,7 @@ class SegmentationHead(nn.Module):
     if self.guidance:
         x_g = self.guidance_layer(x_in)
 
-    x_in = self.conv_classes(x_in)  # x_in" torch.Size([1, 1, 16, 128, 128])
+    x_in = self.conv_classes(x_in)  # x_in: torch.Size([1, 1, 16, 128, 128])
 
     if self.guidance:
         return x_in, x_g

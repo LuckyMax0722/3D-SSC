@@ -3,8 +3,10 @@
 # -------------------------------------------------------------------
 #  Modified by Yiming Li
 # -------------------------------------------------------------------
-
 from __future__ import division
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 
 import argparse
 import copy
@@ -104,6 +106,8 @@ def parse_args():
     return args
 
 def main():
+    
+    
     args = parse_args()
 
     args.config = CONF.PATH.SGN_CONFIG
