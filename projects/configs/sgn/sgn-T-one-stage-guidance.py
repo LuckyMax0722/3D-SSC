@@ -57,7 +57,7 @@ model = dict(
        CE_ssc_loss=True,
        geo_scal_loss=_geo_scal_loss_,
        sem_scal_loss=_sem_scal_loss_,
-       scale_2d_list=[16]
+       scale_2d_list=[16]  # 16
        ),
    train_cfg=dict(pts=dict(
        grid_size=[512, 512, 1],

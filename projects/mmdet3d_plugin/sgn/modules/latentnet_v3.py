@@ -13,6 +13,15 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..
 sys.path.append(project_root)
 from projects.configs.config import CONF
 
+def l2_regularisation(m):
+    l2_reg = None
+
+    for W in m.parameters():
+        if l2_reg is None:
+            l2_reg = W.norm(2)
+        else:
+            l2_reg = l2_reg + W.norm(2)
+    return l2_reg
 
 class LatentNet(nn.Module):
     def __init__(self):
@@ -21,8 +30,7 @@ class LatentNet(nn.Module):
         # 1. Hyperparemeters     
         channel = 32
         latent_dim = 3
-        
-        
+
         self.x_encoder = Encoder_x(4, channel, latent_dim)
         self.xy_encoder = Encoder_xy(4, channel, latent_dim)
         self.decoder = Decoder(latent_dim)
@@ -49,12 +57,12 @@ class LatentNet(nn.Module):
         depth = img_metas[0]['depth_tensor'].to(device)  # torch.Size([5, 1, 370, 1220])
         
         combined_image = torch.cat((img, depth),1)
+        
         # Encoder x
         self.prior, mux, logvarx = self.x_encoder(combined_image)  # input: torch.Size([5, 4, 370, 1220])
         
         #z_noise_prior = self.reparametrize(mux, logvarx)  # torch.Size([5, 3])
-        
-        
+            
         # Encoder xy
         self.posterior, muxy, logvarxy = self.xy_encoder(combined_image, target)
         
@@ -65,9 +73,21 @@ class LatentNet(nn.Module):
         img = self.decoder.forward_image(img, depth, z_noise_post)
         
         loss_dict = dict()
-        lattent_loss = torch.mean(self.kl_divergence(self.posterior, self.prior))
-        loss_dict['loss_latent'] = lattent_loss
         
+        
+        lattent_loss = torch.mean(self.kl_divergence(self.posterior, self.prior))
+        
+        if CONF.LATENTNET.USE_V3_1:
+            # lattent_loss = lattent_loss + regular_loss
+            regular_loss = l2_regularisation(self.xy_encoder) + l2_regularisation(self.x_encoder) + l2_regularisation(self.decoder)  
+            
+            # ad hoc
+            regular_loss = 1e-4 * regular_loss
+        
+            loss_dict['loss_latent'] = lattent_loss + regular_loss
+        else:
+            loss_dict['loss_latent'] = lattent_loss
+            
         return loss_dict, img
     
     def forward_test(self, img, img_metas, target):

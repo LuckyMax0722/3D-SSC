@@ -109,7 +109,7 @@ def main():
 
     args.config = CONF.PATH.SGN_CONFIG
     #args.work_dir = CONF.PATH.OUTPUT
-    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_LatentNetV2')
+    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_LatentNetV3_1')
     args.resume_from = CONF.PATH.CHECKPOINT_SGN
     #args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/epoch_12.pth'
     args.deterministic = True

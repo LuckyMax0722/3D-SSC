@@ -61,8 +61,8 @@ class FLoSP(nn.Module):
                     fov_mask,
                 )
 
-        _, c, nq = x3d.shape
-        x3d = x3d.view(bs, num_cam, c, nq)
+        _, c, nq = x3d.shape  # torch.Size([5, 128, 262144])
+        x3d = x3d.view(bs, num_cam, c, nq)  # torch.Size([1, 5, 128, 262144])
         if num_cam > 1:
             fov_mask = fov_mask.view(bs, num_cam, nq)
             weights = torch.sum(fov_mask, dim=1)  # bs, nq
