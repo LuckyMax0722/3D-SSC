@@ -156,6 +156,8 @@ class SDB(nn.Module):
         self.aspp = ASPP(c)
     
     def forward(self, x):
+        print(x.size())
+        return
         x = self.conv_in(x)
         x = self.diffusion(x)
         x = self.aspp(x)

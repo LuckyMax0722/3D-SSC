@@ -9,6 +9,7 @@ class FLoSP(nn.Module):
 
         self.scale_2d_list = scale_2d_list
 
+
     def project(self, x2d, projected_pix, fov_mask):
         bs, c, h, w = x2d.shape
 
@@ -24,6 +25,7 @@ class FLoSP(nn.Module):
 
         return x
 
+    
     def forward(self, mlvl_feats, img_metas):
         assert len(self.scale_2d_list) == len(mlvl_feats)
 

@@ -95,16 +95,22 @@ class SGNHeadOcc(nn.Module):
         # Treatment output 1:8
         self.conv_out_scale_1_8 = nn.Conv2d(int(f*2.5), int(f/8), kernel_size=3, padding=1, stride=1)
         self.deconv_1_8__1_2    = nn.ConvTranspose2d(int(f/8), int(f/8), kernel_size=4, padding=0, stride=4)
-        self.deconv_1_8__1_1    = nn.ConvTranspose2d(int(f/8), int(f/8), kernel_size=8, padding=0, stride=8)
-
+        
         self.deconv1_8          = nn.ConvTranspose2d(int(f/8), int(f/8), kernel_size=6, padding=2, stride=2)
         self.conv1_4            = nn.Conv2d(int(f*2) + int(f/8), int(f*2), kernel_size=3, padding=1, stride=1)
         self.conv_out_scale_1_4 = nn.Conv2d(int(f*2), int(f/4), kernel_size=3, padding=1, stride=1)
-        self.deconv_1_4__1_1    = nn.ConvTranspose2d(int(f/4), int(f/4), kernel_size=4, padding=0, stride=4)
 
         self.deconv1_4          = nn.ConvTranspose2d(int(f/4), int(f/4), kernel_size=6, padding=2, stride=2)
         self.conv1_2            = nn.Conv2d(int(f*1.5) + int(f/4) + int(f/8), int(f*1.5), kernel_size=3, padding=1, stride=1)
         self.conv_out_scale_1_2 = nn.Conv2d(int(f*1.5), int(f/2), kernel_size=3, padding=1, stride=1)
+        
+        if CONF.FULL_SCALE.USE_V1:
+            self.deconv_1_8__1_1    = nn.ConvTranspose2d(int(f/4), int(f/4), kernel_size=4, padding=0, stride=4)
+            self.deconv1_2          = nn.ConvTranspose2d(int(f/2), int(f/2), kernel_size=6, padding=2, stride=2)
+            self.conv1_1            = nn.Conv2d(int(f*1) + int(f/2) + int(f/4), int(f*1.5), kernel_size=3, padding=1, stride=1)
+            self.conv_out_scale_1_1 = nn.Conv2d(int(f*1.5), int(f*1), kernel_size=3, padding=1, stride=1)
+            
+            self.seg_head_1_1 = SegmentationHead(1, 8, self.nbr_classes, [1, 2, 3], guidance=guidance)
 
         self.guidance = guidance
         self.seg_head_1_2 = SegmentationHead(1, 8, self.nbr_classes, [1, 2, 3], guidance=guidance)
@@ -141,28 +147,45 @@ class SGNHeadOcc(nn.Module):
         # print('_skip_1_8.shape', _skip_1_8.shape)  # [1, 80, 32, 32]
 
         # Out 1_8
-        out_scale_1_8__2D = self.conv_out_scale_1_8(_skip_1_8)
+        out_scale_1_8__2D = self.conv_out_scale_1_8(_skip_1_8)  # torch.Size([1, 4, 32, 32])
 
         # Out 1_4
-        out = self.deconv1_8(out_scale_1_8__2D)
-        out = torch.cat((out, _skip_1_4), 1)
-        out = F.relu(self.conv1_4(out))
-        out_scale_1_4__2D = self.conv_out_scale_1_4(out)
+        out = self.deconv1_8(out_scale_1_8__2D)  # torch.Size([1, 4, 64, 64])
+        out = torch.cat((out, _skip_1_4), 1)  # torch.Size([1, 68, 64, 64])
+        out = F.relu(self.conv1_4(out))  # torch.Size([1, 64, 64, 64])
+        out_scale_1_4__2D = self.conv_out_scale_1_4(out)  # torch.Size([1, 8, 64, 64])
 
         # Out 1_2
-        out = self.deconv1_4(out_scale_1_4__2D)
-        out = torch.cat((out, _skip_1_2, self.deconv_1_8__1_2(out_scale_1_8__2D)), 1)
+        out = self.deconv1_4(out_scale_1_4__2D)  # torch.Size([1, 8, 128, 128])
+        out = torch.cat((out, _skip_1_2, self.deconv_1_8__1_2(out_scale_1_8__2D)), 1)  # torch.Size([1, 60, 128, 128])
         out = F.relu(self.conv1_2(out)) # torch.Size([1, 48, 128, 128])
         out_scale_1_2__2D = self.conv_out_scale_1_2(out) # torch.Size([1, 16, 128, 128])
-
-        out_scale_1_2__3D, out_guidance = self.seg_head_1_2(out_scale_1_2__2D) 
-        # out_scale_1_2__3D: torch.Size([1, 1, 16, 128, 128])
         
-        out_scale_1_2__3D = out_scale_1_2__3D.permute(0, 1, 3, 4, 2) # torch.Size([1, 1, 128, 128, 16])
+        if CONF.FULL_SCALE.USE_V1:
+            # Out 1_1
+            out = self.deconv1_2(out_scale_1_2__2D) # torch.Size([1, 16, 256, 256])
+            out = torch.cat((out, _skip_1_1, self.deconv_1_8__1_1(out_scale_1_4__2D)), 1)  # torch.Size([1, 56, 256, 256])
+            out = F.relu(self.conv1_1(out)) # torch.Size([1, 48, 256, 256])
+            out_scale_1_1__2D = self.conv_out_scale_1_1(out) # torch.Size([1, 32, 256, 256])
 
-        out = {}
-        out['occ_logit'] = out_scale_1_2__3D  # torch.Size([1, 1, 128, 128, 16])
-        out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 128, 128, 16])
+            out_scale_1_1__3D, out_guidance = self.seg_head_1_1(out_scale_1_1__2D)
+            
+            out_scale_1_1__3D = out_scale_1_1__3D.permute(0, 1, 3, 4, 2) # torch.Size([1, 1, 256, 256, 32])
+            
+            out = {}
+            out['occ_logit'] = out_scale_1_1__3D  # torch.Size([1, 1, 256, 256, 32])
+            out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 256, 256, 32])
+        
+        else:
+            out_scale_1_2__3D, out_guidance = self.seg_head_1_2(out_scale_1_2__2D) 
+            # out_scale_1_2__3D: torch.Size([1, 1, 16, 128, 128])
+            
+            out_scale_1_2__3D = out_scale_1_2__3D.permute(0, 1, 3, 4, 2) # torch.Size([1, 1, 256, 256, 32])
+
+            out = {}
+            out['occ_logit'] = out_scale_1_2__3D  # torch.Size([1, 1, 256, 256, 32])
+            out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 128, 128, 16])
+            print(out['occ_x'].size())
 
         return out
 
