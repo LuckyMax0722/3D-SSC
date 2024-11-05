@@ -68,7 +68,6 @@ def sem_scal_loss(pred, ssc_target):
     mask = ssc_target != 255
     n_classes = pred.shape[1]
     for i in range(0, n_classes):
-
         # Get probability of class i
         p = pred[:, i, :, :, :]
 
@@ -94,8 +93,7 @@ def sem_scal_loss(pred, ssc_target):
             if torch.sum(completion_target) > 0:
                 recall = nominator / (torch.sum(completion_target))
                 loss_recall = F.binary_cross_entropy(recall, torch.ones_like(recall))
-                
-
+            
                 loss_class += loss_recall
             if torch.sum(1 - completion_target) > 0:
                 specificity = torch.sum((1 - p) * (1 - completion_target)) / (

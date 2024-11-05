@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
                                                         
@@ -36,7 +37,7 @@ class Header(nn.Module):
 
         return res
 
-class Header_1(nn.Module):
+class HeaderFullScale(nn.Module):
     def __init__(
         self,
         class_num,
@@ -63,8 +64,8 @@ class Header_1(nn.Module):
 
         ssc_logit = ssc_logit_full.reshape(w, l, h, self.class_num).permute(3,0,1,2).unsqueeze(0)
         
-        res["ssc_logit"] = ssc_logit
-
+        res["ssc_logit"] = ssc_logit.to(torch.float32)
+        
         return res
     
 class SparseHeader(nn.Module):

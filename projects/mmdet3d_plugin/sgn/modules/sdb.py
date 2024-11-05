@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import sys
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
+from projects.configs.config import CONF
 
 class ASPP(nn.Module):
     def __init__(
@@ -148,20 +153,25 @@ class SDB(nn.Module):
     def __init__(self, channel, out_channel, depth=3, version='v1'):
         super().__init__()
 
-        c = out_channel
-        self.conv_in = nn.Conv3d(channel, c, kernel_size=3, padding=1)  # torch.Size([1, 64, 128, 128, 16])
+        if CONF.FULL_SCALE.USE_V2:
+            self.conv_in = nn.Sequential(
+                nn.Conv3d(channel, 128, kernel_size=1),  # torch.Size([1, 64, 128, 128, 16])
+                nn.ReLU(),
+                nn.Conv3d(128, out_channel, kernel_size=3, padding=1),  # torch.Size([1, 64, 128, 128, 16])
+                nn.ReLU(),
+            )
+        else:
+            self.conv_in = nn.Conv3d(channel, out_channel, kernel_size=3, padding=1)  # torch.Size([1, 64, 128, 128, 16])
+            
         basic_block = MPAC if version=='v1' else MPACv2
-        blocks = [basic_block(c, residual=True) for _ in range(depth)]
+        blocks = [basic_block(out_channel, residual=True) for _ in range(depth)]
         self.diffusion = nn.Sequential(*blocks)
-        self.aspp = ASPP(c)
+        self.aspp = ASPP(out_channel)
     
     def forward(self, x):
-        print(x.size())
-        return
         x = self.conv_in(x)
         x = self.diffusion(x)
         x = self.aspp(x)
 
         return x
-
 

@@ -93,6 +93,8 @@ class SGNHeadOcc(nn.Module):
         )
 
         # Treatment output 1:8
+        self.guidance = guidance
+        
         self.conv_out_scale_1_8 = nn.Conv2d(int(f*2.5), int(f/8), kernel_size=3, padding=1, stride=1)
         self.deconv_1_8__1_2    = nn.ConvTranspose2d(int(f/8), int(f/8), kernel_size=4, padding=0, stride=4)
         
@@ -103,6 +105,7 @@ class SGNHeadOcc(nn.Module):
         self.deconv1_4          = nn.ConvTranspose2d(int(f/4), int(f/4), kernel_size=6, padding=2, stride=2)
         self.conv1_2            = nn.Conv2d(int(f*1.5) + int(f/4) + int(f/8), int(f*1.5), kernel_size=3, padding=1, stride=1)
         self.conv_out_scale_1_2 = nn.Conv2d(int(f*1.5), int(f/2), kernel_size=3, padding=1, stride=1)
+
         
         if CONF.FULL_SCALE.USE_V1:
             self.deconv_1_8__1_1    = nn.ConvTranspose2d(int(f/4), int(f/4), kernel_size=4, padding=0, stride=4)
@@ -111,12 +114,12 @@ class SGNHeadOcc(nn.Module):
             self.conv_out_scale_1_1 = nn.Conv2d(int(f*1.5), int(f*1), kernel_size=3, padding=1, stride=1)
             
             self.seg_head_1_1 = SegmentationHead(1, 8, self.nbr_classes, [1, 2, 3], guidance=guidance)
-
-        self.guidance = guidance
-        self.seg_head_1_2 = SegmentationHead(1, 8, self.nbr_classes, [1, 2, 3], guidance=guidance)
+        else:
+            self.seg_head_1_2 = SegmentationHead(1, 8, self.nbr_classes, [1, 2, 3], guidance=guidance)
 
 
     def forward(self,  mlvl_feats, img_metas, target):
+
         device = target.device
         points = []
         batch_idx = []
@@ -174,21 +177,18 @@ class SGNHeadOcc(nn.Module):
             
             out = {}
             out['occ_logit'] = out_scale_1_1__3D  # torch.Size([1, 1, 256, 256, 32])
-            out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 256, 256, 32])
-        
+            out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 256, 256, 32])      
         else:
-            out_scale_1_2__3D, out_guidance = self.seg_head_1_2(out_scale_1_2__2D) 
-            # out_scale_1_2__3D: torch.Size([1, 1, 16, 128, 128])
-            
+            out_scale_1_2__3D, out_guidance = self.seg_head_1_2(out_scale_1_2__2D) # out_scale_1_2__3D: torch.Size([1, 1, 16, 128, 128])   
             out_scale_1_2__3D = out_scale_1_2__3D.permute(0, 1, 3, 4, 2) # torch.Size([1, 1, 256, 256, 32])
 
             out = {}
             out['occ_logit'] = out_scale_1_2__3D  # torch.Size([1, 1, 256, 256, 32])
             out['occ_x'] = out_guidance.permute(0, 1, 3, 4, 2) if self.guidance else None  # torch.Size([1, 8, 128, 128, 16])
-            print(out['occ_x'].size())
 
         return out
-
+        
+        
     def step(self, out_dict, target, img_metas, step_type):
         """Training/validation function.
         Args:

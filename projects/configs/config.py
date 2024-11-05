@@ -65,8 +65,8 @@ CONF.FUSION.USE_V1 = False
 
 # TODO: activate or deactivate Full Scale
 CONF.FULL_SCALE = EasyDict()
-CONF.FULL_SCALE.USE_V1 = True
-
+CONF.FULL_SCALE.USE_V1 = False
+CONF.FULL_SCALE.USE_V2 = True
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()

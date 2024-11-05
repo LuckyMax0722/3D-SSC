@@ -10,7 +10,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from mmdet.models import HEADS, builder
-from projects.mmdet3d_plugin.sgn.utils.header import Header, Header_1, SparseHeader
+from projects.mmdet3d_plugin.sgn.utils.header import Header, HeaderFullScale, SparseHeader
 from projects.mmdet3d_plugin.sgn.modules.sgb import SGB
 from projects.mmdet3d_plugin.sgn.modules.sdb import SDB
 from projects.mmdet3d_plugin.sgn.modules.flosp import FLoSP
@@ -49,12 +49,7 @@ class SGNHeadOne(nn.Module):
         self.real_w = 51.2
         self.real_h = 51.2
         self.embed_dims = embed_dims
-
-        if CONF.FULL_SCALE.USE_V1:
-            self.bev_h = 256
-            self.bev_w = 256 
-            self.bev_z = 32
-        
+            
         if kwargs.get('dataset', 'semantickitti') == 'semantickitti':
             self.class_names =  [ "empty", "car", "bicycle", "motorcycle", "truck", "other-vehicle", "person", "bicyclist", "motorcyclist", "road", 
                                 "parking", "sidewalk", "other-ground", "building", "fence", "vegetation", "trunk", "terrain", "pole", "traffic-sign",]
@@ -74,8 +69,7 @@ class SGNHeadOne(nn.Module):
         
         self.flosp = FLoSP(scale_2d_list)
         
-        if CONF.FULL_SCALE.USE_V1:
-            self.upsampler = nn.Upsample(scale_factor=2, mode='trilinear')
+        
             
         self.bottleneck = nn.Conv3d(self.embed_dims, self.embed_dims, kernel_size=3, padding=1)
         self.sgb = SGB(sizes=[self.bev_h, self.bev_w, self.bev_z], channels=self.embed_dims)
@@ -87,21 +81,31 @@ class SGNHeadOne(nn.Module):
         )
 
         occ_channel = 8 if pts_header_dict.get('guidance', False) else 0
-        self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
-        
+    
         self.occ_header = nn.Sequential(
             SDB(channel=self.embed_dims, out_channel=self.embed_dims//2, depth=1),
             nn.Conv3d(self.embed_dims//2, 1, kernel_size=3, padding=1)
         )
+        
         self.sem_header = SparseHeader(self.n_classes, feature=self.embed_dims)
         
-        if CONF.FULL_SCALE.USE_V1:
-            self.ssc_header = Header_1(self.n_classes, feature=self.embed_dims//2)
-        else:
-            self.ssc_header = Header(self.n_classes, feature=self.embed_dims//2)
-
         self.pts_header = builder.build_head(pts_header_dict)
+        
+        if CONF.FULL_SCALE.USE_V2:
+            c = 20   # origional is 64, too many paras for full scals
+            
+            self.upsampler = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
 
+            self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=c, depth=depth)
+            
+            self.ssc_header = HeaderFullScale(self.n_classes, feature=c)
+            
+        else:
+            self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
+            
+            self.ssc_header = Header(self.n_classes, feature=self.embed_dims//2)
+            
+            
         self.CE_ssc_loss = CE_ssc_loss
         self.sem_scal_loss = sem_scal_loss
         self.geo_scal_loss = geo_scal_loss
@@ -131,64 +135,7 @@ class SGNHeadOne(nn.Module):
         bs, c, _ = x3d.shape
         #x3d = x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z)  # torch.Size([1, 128, 128, 128, 16])
         x3d = x3d.reshape(bs, c, 128, 128, 16)  # torch.Size([1, 128, 128, 128, 16])
-        
-        if CONF.FULL_SCALE.USE_V1:
-            x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 32, 256, 256])
-            x3d = self.upsampler(x3d)
-            x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 256, 256, 32])
-            
-            x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 256, 256, 32]) --> torch.Size([1, 128, 256, 256, 32])
 
-            # Geometry Guidance --> SDB + 3D Conv
-            occ = self.occ_header(x3d).squeeze(1) # torch.Size([1, 256, 256, 32])
-            out["occ"] = occ
-
-            x3d = x3d.reshape(bs, c, -1)  # torch.Size([1, 128, 2097152])
-            
-            # Load proposals
-            pts_out = self.pts_header(mlvl_feats, img_metas, target)
-            pts_occ = pts_out['occ_logit'].squeeze(1)  # torch.Size([1, 256, 256, 32])
-
-            proposal =  (pts_occ > 0).float().detach().cpu().numpy()  # (1, 256, 256, 32)
-            out['pts_occ'] = pts_occ  # torch.Size([1, 256, 256, 32])
-            
-            if proposal.sum() < 2:
-                proposal = np.ones_like(proposal)
-                
-            unmasked_idx = np.asarray(np.where(proposal.reshape(-1)>0)).astype(np.int32)
-            masked_idx = np.asarray(np.where(proposal.reshape(-1)==0)).astype(np.int32)
-            vox_coords = self.get_voxel_indices()  # vox_coords: (2097152, 4)
-
-            seed_feats = x3d[0, :, vox_coords[unmasked_idx[0], 3]].permute(1, 0)
-            seed_coords = vox_coords[unmasked_idx[0], :3]
-            coords_torch = torch.from_numpy(np.concatenate(
-                [np.zeros_like(seed_coords[:, :1]), seed_coords], axis=1)).to(seed_feats.device)
-            seed_feats_desc = self.sgb(seed_feats, coords_torch)  
-            sem = self.sem_header(seed_feats_desc)
-            
-            out["sem_logit"] = sem
-            out["coords"] = seed_coords
-            
-            # Complete voxel features
-            vox_feats = torch.empty((self.bev_h, self.bev_w, self.bev_z, self.embed_dims), device=x3d.device) 
-            vox_feats_flatten = vox_feats.reshape(-1, self.embed_dims)
-            vox_feats_flatten[vox_coords[unmasked_idx[0], 3], :] = seed_feats_desc
-            vox_feats_flatten[vox_coords[masked_idx[0], 3], :] = self.mlp_prior(x3d[0, :, vox_coords[masked_idx[0], 3]].permute(1, 0))
-
-            vox_feats_diff = vox_feats_flatten.reshape(self.bev_h, self.bev_w, self.bev_z, self.embed_dims).permute(3, 0, 1, 2).unsqueeze(0) 
-            
-            if self.pts_header.guidance:
-                vox_feats_diff = torch.cat([vox_feats_diff, pts_out['occ_x']], dim=1) 
-            
-            print(vox_feats_diff.size())
-            vox_feats_diff = self.sdb(vox_feats_diff)
-            ssc_dict = self.ssc_header(vox_feats_diff)
-            
-            out.update(ssc_dict)
-                
-            return out
-
-        return
         x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
         
         if CONF.LATENTNET.USE_V4:
@@ -253,8 +200,18 @@ class SGNHeadOne(nn.Module):
         vox_feats_diff = vox_feats_flatten.reshape(self.bev_h, self.bev_w, self.bev_z, self.embed_dims).permute(3, 0, 1, 2).unsqueeze(0)  # torch.Size([1, 128, 128, 128, 16])
         
         if self.pts_header.guidance:
-            vox_feats_diff = torch.cat([vox_feats_diff, pts_out['occ_x']], dim=1)  # torch.Size([1, 136, 128, 128, 16])
-        vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])
+            vox_feats_diff = torch.cat([vox_feats_diff, pts_out['occ_x']], dim=1)  # torch.Size([1, 136, 128, 128, 16])  /  torch.Size([1, 136, 256, 256, 32])
+        
+        if CONF.FULL_SCALE.USE_V2:
+            vox_feats_diff = vox_feats_diff.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 16, 128, 128])
+            vox_feats_diff = self.upsampler(vox_feats_diff)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 256, 256, 32])
+            vox_feats_diff = vox_feats_diff.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 256, 256, 32])
+
+            vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
+        
+        else:
+            vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
+        
         ssc_dict = self.ssc_header(vox_feats_diff)  # --> ssc logit torch.Size([1, 20, 256, 256, 32])
         
         out.update(ssc_dict)
@@ -271,22 +228,25 @@ class SGNHeadOne(nn.Module):
         Returns:
             loss or predictions
         """
-
         ssc_pred = out_dict["ssc_logit"]
-
+        
         if step_type== "train":
             sem_pred_2 = out_dict["sem_logit"]
 
             target_2 = torch.from_numpy(img_metas[0]['target_1_2']).unsqueeze(0).to(target.device)
             coords = out_dict['coords']
             sp_target_2 = target_2.clone()[0, coords[:, 0], coords[:, 1], coords[:, 2]]
+            
             loss_dict = dict()
 
             class_weight = self.class_weights.type_as(target)
+            
+            
             if self.CE_ssc_loss:
                 loss_ssc = CE_ssc_loss(ssc_pred, target, class_weight)
                 loss_dict['loss_ssc'] = loss_ssc
 
+            
             if self.sem_scal_loss:
                 loss_sem_scal = sem_scal_loss(ssc_pred, target)
                 loss_dict['loss_sem_scal'] = loss_sem_scal
@@ -298,9 +258,10 @@ class SGNHeadOne(nn.Module):
             loss_sem = lovasz_softmax(F.softmax(sem_pred_2, dim=1), sp_target_2, ignore=255)
             loss_sem += F.cross_entropy(sem_pred_2, sp_target_2.long(), ignore_index=255)
             loss_dict['loss_sem'] = loss_sem
-
+            
             ones = torch.ones_like(target_2).to(target_2.device)
             target_2_binary = torch.where(torch.logical_or(target_2==255, target_2==0), target_2, ones)
+
             loss_occ = F.binary_cross_entropy(out_dict['occ'].sigmoid()[target_2_binary!=255], target_2_binary[target_2_binary!=255].float())
             loss_dict['loss_occ'] = loss_occ  # --> L geo
 
