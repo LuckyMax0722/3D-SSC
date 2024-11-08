@@ -432,7 +432,7 @@ class Encoder_xy(nn.Module):
         dist = Independent(Normal(loc=mu, scale=torch.exp(logvar)), 1)
       
         return dist, mu, logvar
-
+  
 class Decoder(nn.Module):
     def __init__(self,):
         super().__init__()
@@ -465,7 +465,6 @@ class Decoder(nn.Module):
             nn.Conv2d(32, 32, kernel_size=3, padding=1, stride=1),
             nn.ReLU(),
         )
-        
         
     
     def tile(self, a, dim, n_tile):
@@ -537,10 +536,7 @@ class Decoder(nn.Module):
         pt_feat = self.Voxel_decoder_block2(pt_feat) # [1, 32, 256, 256]
         
         return pt_feat
-        
-        
-        
-        
+      
 class LatentNet(nn.Module):
     def __init__(self):
         super().__init__()

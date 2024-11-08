@@ -5,7 +5,7 @@ import torch
 
 
 import torch.nn as nn
-
+from .. import builder
 
 import sys
 import os
@@ -47,6 +47,9 @@ class SGN(MVXTwoStageDetector):
         if CONF.LATENTNET.USE_V1:
             from ..modules.latentnet_v1 import LatentNet
             self.latent = LatentNet()
+        elif CONF.LATENTNET.USE_V2:
+            from ..modules.latentnet_v2 import LatentNet
+            self.latent = LatentNet()
         elif CONF.FUSION.USE_V1:
             self.Image_decoder_block1 = nn.Sequential(  
                 nn.Conv2d(4, 3, kernel_size=3, padding=1, stride=1),
@@ -57,6 +60,14 @@ class SGN(MVXTwoStageDetector):
         elif CONF.LATENTNET.USE_V3:
             from ..modules.latentnet_v3 import LatentNet
             self.latent = LatentNet()
+        elif CONF.TRANSFORMER.TCA:
+            from ..modules.tca import TemporalCrossAttention
+            self.tca = TemporalCrossAttention(
+                in_channels=CONF.TRANSFORMER.DIM, 
+                feature_dim=CONF.TRANSFORMER.DIM, 
+                height=CONF.TRANSFORMER.H, 
+                width=CONF.TRANSFORMER.W
+            )
             
             
 
@@ -220,20 +231,21 @@ class SGN(MVXTwoStageDetector):
             
             img = img.unsqueeze(0)  # torch.Size([1, 5, 3, 370, 1220])
 
-        elif CONF.LATENTNET.USE_V3:
+        if CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V2:
             losses_latent, img = self.forward_kl_train(img, img_metas, target)
             losses.update(losses_latent)
         
         if self.only_occ:
             img_feats = None
         else:
-            img_feats = self.extract_feat(img=img) 
-     
+            img_feats = self.extract_feat(img=img)  # List!!
+
+        if CONF.TRANSFORMER.TCA:
+            img_feats = self.tca(img_feats[0])  # [torch.Size([1, 1, 128, 24, 77])]       
+        
         if CONF.LATENTNET.USE_V1:
             losses_latent = self.forward_kl_train(img_feats, img_metas, target)
             losses.update(losses_latent)
-        
-        
         
         losses_pts = self.forward_pts_train(img_feats, img_metas, target)
         losses.update(losses_pts)
@@ -278,7 +290,7 @@ class SGN(MVXTwoStageDetector):
             
             img = img.unsqueeze(0)  # torch.Size([1, 5, 3, 370, 1220])
             
-        elif CONF.LATENTNET.USE_V3:
+        elif CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V2:
             img = self.forward_kl_v3_test(img, img_metas, target)       
 
         if self.only_occ:

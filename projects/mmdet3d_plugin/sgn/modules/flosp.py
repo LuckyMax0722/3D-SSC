@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+import sys
+import os
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
+from projects.configs.config import CONF
 
 class FLoSP(nn.Module):
     def __init__(self, scale_2d_list):
@@ -13,19 +18,26 @@ class FLoSP(nn.Module):
     def project(self, x2d, projected_pix, fov_mask):
         bs, c, h, w = x2d.shape
 
-        src = x2d.view(bs, c, -1)
+        src = x2d.view(bs, c, -1)  # torch.Size([5, 128, 1848])  / torch.Size([1, 128, 1848])
+
         zeros_vec = torch.zeros(bs, c, 1).type_as(src)
         src = torch.cat([src, zeros_vec], -1)
-
+        
+        if CONF.TRANSFORMER.TCA:
+            projected_pix = projected_pix[0].unsqueeze(0)
+            fov_mask = fov_mask[0].unsqueeze(0)
+            
         pix_x, pix_y = projected_pix[:, :, 0], projected_pix[:, :, 1]
         img_indices = pix_y * w + pix_x
         img_indices[~fov_mask] = h * w
         img_indices = img_indices.unsqueeze(1).expand(-1, c, -1).long()  # b, c, N
+        
         x = torch.gather(src, -1, img_indices)  # b, c, N
 
-        return x
+        return x  #  torch.Size([5, 128, 262144]) / torch.Size([1, 128, 262144])
 
-    
+
+        
     def forward(self, mlvl_feats, img_metas):
         assert len(self.scale_2d_list) == len(mlvl_feats)
 
@@ -63,7 +75,7 @@ class FLoSP(nn.Module):
                     fov_mask,
                 )
 
-        _, c, nq = x3d.shape  # torch.Size([5, 128, 262144])
+        _, c, nq = x3d.shape  # torch.Size([5, 128, 262144]) / torch.Size([1, 128, 262144])
         x3d = x3d.view(bs, num_cam, c, nq)  # torch.Size([1, 5, 128, 262144])
         if num_cam > 1:
             fov_mask = fov_mask.view(bs, num_cam, nq)

@@ -10,7 +10,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from mmdet.models import HEADS, builder
-from projects.mmdet3d_plugin.sgn.utils.header import Header, HeaderFullScale, SparseHeader
+from projects.mmdet3d_plugin.sgn.utils.header import Header, SparseHeader
 from projects.mmdet3d_plugin.sgn.modules.sgb import SGB
 from projects.mmdet3d_plugin.sgn.modules.sdb import SDB
 from projects.mmdet3d_plugin.sgn.modules.flosp import FLoSP
@@ -69,9 +69,17 @@ class SGNHeadOne(nn.Module):
         
         self.flosp = FLoSP(scale_2d_list)
         
-        
+        if CONF.FULL_SCALE.USE_V1:
+            self.bev_h = 256
+            self.bev_w = 256 
+            self.bev_z = 32
             
-        self.bottleneck = nn.Conv3d(self.embed_dims, self.embed_dims, kernel_size=3, padding=1)
+            self.upsampler = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
+            
+            self.embed_dims = self.embed_dims // 2
+            
+        #self.bottleneck = nn.Conv3d(self.embed_dims, self.embed_dims, kernel_size=3, padding=1)
+        self.bottleneck = nn.Conv3d(128, self.embed_dims, kernel_size=3, padding=1)
         self.sgb = SGB(sizes=[self.bev_h, self.bev_w, self.bev_z], channels=self.embed_dims)
         self.mlp_prior = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims//2),
@@ -92,17 +100,24 @@ class SGNHeadOne(nn.Module):
         self.pts_header = builder.build_head(pts_header_dict)
         
         if CONF.FULL_SCALE.USE_V2:
+            from projects.mmdet3d_plugin.sgn.utils.header import HeaderFullScaleV2
+            
             c = 20   # origional is 64, too many paras for full scals
             
             self.upsampler = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
 
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=c, depth=depth)
             
-            self.ssc_header = HeaderFullScale(self.n_classes, feature=c)
+            self.ssc_header = HeaderFullScaleV2(self.n_classes, feature=c)
+        
+        elif CONF.FULL_SCALE.USE_V3:
+            from projects.mmdet3d_plugin.sgn.utils.header import HeaderFullScaleV3
             
+            self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
+            self.ssc_header = HeaderFullScaleV3(self.n_classes, feature=self.embed_dims//2)
+                
         else:
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
-            
             self.ssc_header = Header(self.n_classes, feature=self.embed_dims//2)
             
             
@@ -136,6 +151,11 @@ class SGNHeadOne(nn.Module):
         #x3d = x3d.reshape(bs, c, self.bev_h, self.bev_w, self.bev_z)  # torch.Size([1, 128, 128, 128, 16])
         x3d = x3d.reshape(bs, c, 128, 128, 16)  # torch.Size([1, 128, 128, 128, 16])
 
+        if CONF.FULL_SCALE.USE_V1:
+            x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 16, 128, 128])
+            x3d = self.upsampler(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 256, 256, 32])
+            x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 256, 256, 32])
+            
         x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
         
         if CONF.LATENTNET.USE_V4:
@@ -180,7 +200,7 @@ class SGNHeadOne(nn.Module):
         # Compute seed features
         # bs = 1
         # x3d size torch.Size([1, 128, 262144])
-        
+    
         seed_feats = x3d[0, :, vox_coords[unmasked_idx[0], 3]].permute(1, 0)
         seed_coords = vox_coords[unmasked_idx[0], :3]
         coords_torch = torch.from_numpy(np.concatenate(
@@ -199,6 +219,7 @@ class SGNHeadOne(nn.Module):
 
         vox_feats_diff = vox_feats_flatten.reshape(self.bev_h, self.bev_w, self.bev_z, self.embed_dims).permute(3, 0, 1, 2).unsqueeze(0)  # torch.Size([1, 128, 128, 128, 16])
         
+        
         if self.pts_header.guidance:
             vox_feats_diff = torch.cat([vox_feats_diff, pts_out['occ_x']], dim=1)  # torch.Size([1, 136, 128, 128, 16])  /  torch.Size([1, 136, 256, 256, 32])
         
@@ -207,10 +228,8 @@ class SGNHeadOne(nn.Module):
             vox_feats_diff = self.upsampler(vox_feats_diff)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 256, 256, 32])
             vox_feats_diff = vox_feats_diff.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 256, 256, 32])
 
-            vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
-        
-        else:
-            vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
+
+        vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
         
         ssc_dict = self.ssc_header(vox_feats_diff)  # --> ssc logit torch.Size([1, 20, 256, 256, 32])
         

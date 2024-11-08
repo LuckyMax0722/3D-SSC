@@ -51,6 +51,7 @@ CONF.LATENTNET = EasyDict()
 
 # TODO: activate or deactivate KL part
 CONF.LATENTNET.USE_V1 = False
+CONF.LATENTNET.USE_V2 = False
 CONF.LATENTNET.USE_V3 = False
 CONF.LATENTNET.USE_V3_1 = False
 CONF.LATENTNET.USE_V3_2 = False
@@ -66,7 +67,16 @@ CONF.FUSION.USE_V1 = False
 # TODO: activate or deactivate Full Scale
 CONF.FULL_SCALE = EasyDict()
 CONF.FULL_SCALE.USE_V1 = False
-CONF.FULL_SCALE.USE_V2 = True
+CONF.FULL_SCALE.USE_V2 = False
+CONF.FULL_SCALE.USE_V3 = False
+
+
+# TODO: activate or deactivate Transformer part
+CONF.TRANSFORMER = EasyDict()
+CONF.TRANSFORMER.DIM = 128
+CONF.TRANSFORMER.H = 24
+CONF.TRANSFORMER.W = 77
+CONF.TRANSFORMER.TCA = True  # TemporalCrossAttention
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()
