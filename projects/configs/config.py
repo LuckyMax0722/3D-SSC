@@ -57,6 +57,9 @@ CONF.LATENTNET.USE_V3_1 = False
 CONF.LATENTNET.USE_V3_2 = False
 
 CONF.LATENTNET.USE_V4 = False
+
+CONF.LATENTNET.USE_V5 = True
+
 CONF.LATENTNET.LATENT_DIM = 128
 
 # TODO: activate or deactivate Image+Depth part
@@ -76,7 +79,11 @@ CONF.TRANSFORMER = EasyDict()
 CONF.TRANSFORMER.DIM = 128
 CONF.TRANSFORMER.H = 24
 CONF.TRANSFORMER.W = 77
-CONF.TRANSFORMER.TCA = True  # TemporalCrossAttention
+CONF.TRANSFORMER.TCA = False  # TemporalCrossAttention
+
+# TODO: activate or deactivate Uncertainty part
+CONF.UNCERTAINTY = EasyDict()
+CONF.UNCERTAINTY.USE_V1 = False
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()

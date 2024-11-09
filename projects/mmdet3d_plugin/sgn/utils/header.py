@@ -18,7 +18,6 @@ class Header(nn.Module):
 
         self.up_scale_2 = nn.Upsample(scale_factor=2, mode='trilinear', align_corners=True)
 
-
     def forward(self, x3d_l1):
         # [1, 64, 128, 128, 16]
         res = {} 

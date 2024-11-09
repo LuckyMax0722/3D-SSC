@@ -66,9 +66,16 @@ class SGNHeadOne(nn.Module):
         elif CONF.LATENTNET.USE_V4:
             from ..modules.latentnet_v4 import LatentNet
             self.latent = LatentNet()
-        
+        elif CONF.LATENTNET.USE_V5:
+            from ..modules.latentnet_v5 import LatentNet
+            self.latent = LatentNet()
+            
         self.flosp = FLoSP(scale_2d_list)
         
+        if CONF.UNCERTAINTY.USE_V1:
+            from ..modules.uncertainty_v1 import UncertaintyModel
+            self.uncertainty = UncertaintyModel(feature=self.embed_dims, class_num=self.n_classes)
+            
         if CONF.FULL_SCALE.USE_V1:
             self.bev_h = 256
             self.bev_w = 256 
@@ -155,7 +162,7 @@ class SGNHeadOne(nn.Module):
             x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 16, 128, 128])
             x3d = self.upsampler(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 256, 256, 32])
             x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 256, 256, 32])
-            
+    
         x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
         
         if CONF.LATENTNET.USE_V4:
@@ -167,10 +174,18 @@ class SGNHeadOne(nn.Module):
 
             x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
         
+        if CONF.LATENTNET.USE_V5:
+            if img_metas[0]['mode'] == 'train':
+                x3d, lattent_loss = self.latent.forward_train(x3d, target)
+                out['lattent_loss'] = lattent_loss
+            elif img_metas[0]['mode'] == 'test':
+                x3d = self.latent.forward_test(x3d)
+                
         # Geometry Guidance --> SDB + 3D Conv
         occ = self.occ_header(x3d).squeeze(1) # ([1, 128, 128, 16])
         out["occ"] = occ
 
+        x3d_original = x3d.clone()
         x3d = x3d.reshape(bs, c, -1)  # torch.Size([1, 128, 262144])
         
         # Load proposals
@@ -200,7 +215,7 @@ class SGNHeadOne(nn.Module):
         # Compute seed features
         # bs = 1
         # x3d size torch.Size([1, 128, 262144])
-    
+        
         seed_feats = x3d[0, :, vox_coords[unmasked_idx[0], 3]].permute(1, 0)
         seed_coords = vox_coords[unmasked_idx[0], :3]
         coords_torch = torch.from_numpy(np.concatenate(
@@ -233,6 +248,9 @@ class SGNHeadOne(nn.Module):
         
         ssc_dict = self.ssc_header(vox_feats_diff)  # --> ssc logit torch.Size([1, 20, 256, 256, 32])
         
+        if CONF.UNCERTAINTY.USE_V1:
+            ssc_dict = self.uncertainty(x3d_original, ssc_dict)
+            
         out.update(ssc_dict)
             
         return out

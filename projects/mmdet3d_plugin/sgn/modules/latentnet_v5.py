@@ -5,7 +5,7 @@ import os
 import sys
 
 from torch.distributions import Normal, Independent, kl
-from .latent_v4 import Decoder, Encoder_xy, Encoder_x
+from .latent_v5 import Decoder, Encoder_xy, Encoder_x
 
 import sys
 import os
@@ -19,12 +19,13 @@ class LatentNet(nn.Module):
         super().__init__()
         
         # 1. Hyperparemeters     
-        latent_dim = 128
+        feat_dim = 128
+        latent_dim = 128 * 128 * 16
         
-        self.x_encoder = Encoder_x(latent_dim)
-        self.xy_encoder = Encoder_xy(latent_dim)
+        self.x_encoder = Encoder_x(feat_dim, latent_dim)
+        self.xy_encoder = Encoder_xy(feat_dim)
         
-        self.decoder = Decoder(latent_dim)
+        self.decoder = Decoder(feat_dim)
 
     
     def kl_divergence(self, posterior_latent_space, prior_latent_space):
@@ -41,17 +42,7 @@ class LatentNet(nn.Module):
         input:
             target: torch.Size([1, 256, 256, 32])
             x3d: torch.Size([1, 128, 128, 128, 16])
-        ''' 
-        
-        # dim change
-        target_input = target_input.unsqueeze(1).permute(0, 1, 4, 3, 2)  # torch.Size([1, 1, 32, 256, 256])
-        x3d_input = x3d_input.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 16, 128, 128]      
-        
-        '''
-            target: torch.Size([1, 1, 32, 256, 256])
-            x3d: torch.Size([1, 128, 16, 128, 128])
-        '''
-        
+        '''    
         
         # Encoder x
         self.prior, mux, logvarx = self.x_encoder(x3d)

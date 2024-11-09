@@ -290,7 +290,7 @@ class SGN(MVXTwoStageDetector):
             
             img = img.unsqueeze(0)  # torch.Size([1, 5, 3, 370, 1220])
             
-        elif CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V2:
+        if CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V2:
             img = self.forward_kl_v3_test(img, img_metas, target)       
 
         if self.only_occ:
@@ -298,6 +298,9 @@ class SGN(MVXTwoStageDetector):
         else:
             img_feats = self.extract_feat(img=img)  
         
+        if CONF.TRANSFORMER.TCA:
+            img_feats = self.tca(img_feats[0])  # [torch.Size([1, 1, 128, 24, 77])]       
+            
         if CONF.LATENTNET.USE_V1:
             self.forward_kl_test(img_feats, img_metas, target)
             
