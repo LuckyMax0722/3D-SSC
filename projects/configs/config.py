@@ -58,7 +58,8 @@ CONF.LATENTNET.USE_V3_2 = False
 
 CONF.LATENTNET.USE_V4 = False
 
-CONF.LATENTNET.USE_V5 = True
+CONF.LATENTNET.USE_V5 = False
+CONF.LATENTNET.USE_V5_alpha = 0.1
 
 CONF.LATENTNET.LATENT_DIM = 128
 
@@ -85,6 +86,10 @@ CONF.TRANSFORMER.TCA = False  # TemporalCrossAttention
 CONF.UNCERTAINTY = EasyDict()
 CONF.UNCERTAINTY.USE_V1 = False
 
+# TODO: activate or deactivate TPV
+CONF.TPV = EasyDict()
+CONF.TPV.USE_V1 = True
+
 # PVRCNN config
 CONF.PVRCNN = EasyDict()
 CONF.PVRCNN.NUM_BEV_FEATURES = 128
@@ -97,3 +102,17 @@ CONF.PVRCNN.NUM_UPSAMPLE_FILTERS = [256, 256]
 # VP2P config
 CONF.VP2P = EasyDict()
 CONF.VP2P.INPUT_PT_NUM = 40960
+
+# Scene Scale Diffusion config
+CONF.SSD = EasyDict()
+CONF.SSD.init_size = 16
+CONF.SSD.num_classes = 20
+CONF.SSD.vq_size = 100
+CONF.SSD.l_size = '16162'
+CONF.SSD.l_attention = True
+CONF.SSD.out_dim = 1024
+
+# SGN para
+CONF.SGN = EasyDict()
+CONF.SGN.embed_dims = 128
+CONF.SGN.class_num = 20

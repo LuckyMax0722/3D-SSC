@@ -109,9 +109,9 @@ def main():
 
     args.config = CONF.PATH.SGN_CONFIG
     #args.work_dir = CONF.PATH.OUTPUT
-    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_TCA')
+    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_LatentNetV5')
     args.resume_from = CONF.PATH.CHECKPOINT_SGN
-    #args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/epoch_12.pth'
+    #args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_SGN_TCA/epoch_19.pth'
     args.deterministic = True
     args.launcher = 'pytorch'
 

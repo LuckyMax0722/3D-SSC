@@ -8,6 +8,7 @@ import numpy as np
 from numpy.linalg import inv
 from torchvision import transforms
 from mmdet.datasets import DATASETS
+import mmcv
 from mmcv.parallel import DataContainer as DC
 
 import open3d as o3d
@@ -562,11 +563,19 @@ class SemanticKittiDataset(Dataset):
             meta_dict['lidar_num_points'] = num_points
         elif CONF.FUSION.USE_V1 or CONF.LATENTNET.USE_V3 or CONF.LATENTNET.USE_V4:
             meta_dict['depth_tensor'] = depth_tensor
+        
+        elif CONF.TPV.USE_V1:
+            meta_dict['img_shape'] = [(384,1248)]
         else:
             pass
         
         return meta_dict
 
+    def padding(self, img):
+        padded_img = mmcv.impad_to_multiple(img, 32, pad_val=0)
+        
+        return padded_img
+        
     def get_input_info(self, sequence, frame_id):
         """Get the image of the specific frame in a sequence.
 
@@ -594,8 +603,12 @@ class SemanticKittiDataset(Dataset):
         # PIL to numpy
         img = np.array(img, dtype=np.float32, copy=False) / 255.0
         img = img[:self.img_H, :self.img_W, :]  # crop image
-        img = self.normalize_rgb(img)
         
+        if CONF.TPV.USE_V1:
+            img = self.padding(img)  # (370, 1220, 3) --> (384, 1248, 3)
+
+        img = self.normalize_rgb(img)
+
         image_list.append(img)
 
         # reference frame
@@ -618,6 +631,9 @@ class SemanticKittiDataset(Dataset):
             # PIL to numpy
             img = np.array(img, dtype=np.float32, copy=False) / 255.0
             img = img[:self.img_H, :self.img_W, :]  # crop image
+
+            if CONF.TPV.USE_V1:
+                img = self.padding(img)  # (370, 1220, 3) --> (384, 1248, 3)
 
             img = self.normalize_rgb(img)
 

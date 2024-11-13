@@ -122,7 +122,14 @@ class SGNHeadOne(nn.Module):
             
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
             self.ssc_header = HeaderFullScaleV3(self.n_classes, feature=self.embed_dims//2)
-                
+        
+        elif CONF.LATENTNET.USE_V5: 
+            from projects.mmdet3d_plugin.sgn.utils.header import HeaderV5
+            
+            alpha = CONF.LATENTNET.USE_V5_alpha
+            self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
+            self.ssc_header = HeaderV5(self.n_classes, feature=self.embed_dims//2, alpha=alpha)     
+            
         else:
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
             self.ssc_header = Header(self.n_classes, feature=self.embed_dims//2)
@@ -176,16 +183,21 @@ class SGNHeadOne(nn.Module):
         
         if CONF.LATENTNET.USE_V5:
             if img_metas[0]['mode'] == 'train':
-                x3d, lattent_loss = self.latent.forward_train(x3d, target)
-                out['lattent_loss'] = lattent_loss
+                target_2 = torch.from_numpy(img_metas[0]['target_1_2']).unsqueeze(0).to(target.device)
+                recons_logit, out['recons_loss'], out['vq_loss'], out['lattent_loss'] = self.latent.forward_train(x3d, target_2)
+
             elif img_metas[0]['mode'] == 'test':
-                x3d = self.latent.forward_test(x3d)
-                
+                recons_logit = self.latent.forward_test(x3d)
+        
+        #import subprocess
+        #subprocess.run(['nvidia-smi'], check=True)
+         
         # Geometry Guidance --> SDB + 3D Conv
         occ = self.occ_header(x3d).squeeze(1) # ([1, 128, 128, 16])
         out["occ"] = occ
 
-        x3d_original = x3d.clone()
+        if CONF.UNCERTAINTY.USE_V1:
+            x3d_original = x3d.clone()
         x3d = x3d.reshape(bs, c, -1)  # torch.Size([1, 128, 262144])
         
         # Load proposals
@@ -246,7 +258,10 @@ class SGNHeadOne(nn.Module):
 
         vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
         
-        ssc_dict = self.ssc_header(vox_feats_diff)  # --> ssc logit torch.Size([1, 20, 256, 256, 32])
+        if CONF.LATENTNET.USE_V5:
+            ssc_dict = self.ssc_header(vox_feats_diff, recons_logit)
+        else:
+            ssc_dict = self.ssc_header(vox_feats_diff)  # --> ssc logit torch.Size([1, 20, 256, 256, 32])
         
         if CONF.UNCERTAINTY.USE_V1:
             ssc_dict = self.uncertainty(x3d_original, ssc_dict)
@@ -305,6 +320,11 @@ class SGNHeadOne(nn.Module):
             loss_dict['loss_pts'] = F.binary_cross_entropy(out_dict['pts_occ'].sigmoid()[target_2_binary!=255], target_2_binary[target_2_binary!=255].float())
 
             if CONF.LATENTNET.USE_V4:
+                loss_dict['loss_latent'] = out_dict['lattent_loss']
+            
+            if CONF.LATENTNET.USE_V5:
+                loss_dict['loss_recons'] = out_dict['recons_loss']
+                loss_dict['loss_vq'] = out_dict['vq_loss']
                 loss_dict['loss_latent'] = out_dict['lattent_loss']
                 
             return loss_dict

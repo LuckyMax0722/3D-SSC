@@ -3,9 +3,7 @@ from mmdet.models import DETECTORS
 from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
 import torch
 
-
 import torch.nn as nn
-from .. import builder
 
 import sys
 import os

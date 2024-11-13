@@ -1,173 +1,178 @@
-import torch
-import torch.nn as nn
 import numpy as np
+import math
+import torch
+from torch import nn
+import torch.nn.functional as F
+from einops import rearrange, reduce, repeat
+from torch import nn, einsum
 
-from torch.distributions import Normal, Independent, kl
+
+def conv3x3x3(in_planes, out_planes, stride=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+def conv1x3x3(in_planes, out_planes, stride=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=stride,padding=(0, 1, 1), bias=False)
+
+def conv1x1x3(in_planes, out_planes, stride=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 1, 3), stride=stride, padding=(0, 0, 1), bias=False)
+
+def conv1x3x1(in_planes, out_planes, stride=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 1), stride=stride, padding=(0, 1, 0), bias=False)
+
+def conv3x1x1(in_planes, out_planes, stride=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=stride, padding=(1, 0, 0), bias=False)
+
+def conv3x1x3(in_planes, out_planes, stride=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 3), stride=stride, padding=(1, 0, 1), bias=False)
+
+def conv1x1(in_planes, out_planes, stride=1):
+    return nn.Conv3d(in_planes, out_planes, kernel_size=1, stride=stride)
 
 
-class Encoder_x(nn.Module):
-    def __init__(self, feature, latent_size):
-        super(Encoder_x, self).__init__()
-        
-        # 2 Voxel Branch
-        self.voxel_encoder = nn.Sequential(
-            nn.LayerNorm(feature),
-            nn.Linear(feature, 1),
-        )
-        
-        self.fc1 = nn.Sequential(
-            nn.Linear(latent_size, latent_size),
-        )
-        
-        self.fc2 = nn.Sequential(
-            nn.Linear(latent_size, latent_size),
-        )
+class Asymmetric_Residual_Block(nn.Module):
+    def __init__(self, in_filters, out_filters):
+        super(Asymmetric_Residual_Block, self).__init__()
+        self.conv1 = conv1x3x3(in_filters, out_filters)
+        self.act1 = nn.LeakyReLU()          
+        self.conv1_2 = conv3x1x3(out_filters, out_filters)
+        self.act1_2 = nn.LeakyReLU()
 
-        
-    def forward(self, x3d_input):  
-        '''
-        input:
-            x3d: torch.Size([1, 128, 128, 128, 16])
-        '''
-        
-        # 1.Voxel Branch
-        _, feat_dim, w, l, h  = x3d_input.shape
-        
-        x3d_input = x3d_input.squeeze().permute(1,2,3,0).reshape(-1, feat_dim)  #  torch.Size([2097152, 128])
-        
-        x3d_input = self.voxel_encoder(x3d_input)  # torch.Size([262144, 1])
-        
-        x3d_input = x3d_input.squeeze(1).unsqueeze(0)  # torch.Size([1, 262144])
+        self.conv2 = conv3x1x3(in_filters, out_filters)
+        self.act2 = nn.LeakyReLU()
 
-        mu = self.fc1(x3d_input)  # torch.Size([1, 262144])
-        
-        logvar = self.fc2(x3d_input)
-        
-        print(mu.size())
-        return
-        x3d_input = self.voxel_encoder1(x3d_input) # torch.Size([1, 192, 128, 128, 16])
-        x3d_input = self.voxel_encoder2(x3d_input) # torch.Size([1, 256, 64, 64, 8])
-        x3d_input = self.voxel_encoder3(x3d_input) # torch.Size([1, 320, 32, 32, 4])
-        x3d_input = self.voxel_encoder4(x3d_input) # torch.Size([1, 384, 16, 16, 2])
-        
-        x3d_input = x3d_input.view(1, 384 * 16 * 16 * 2)  # [1, 196,608]
-        
-        mu = self.fc1(x3d_input)
-        logvar = self.fc2(x3d_input)
-        dist = Independent(Normal(loc=mu, scale=torch.exp(logvar)), 1)
+        self.conv3 = conv1x3x3(out_filters, out_filters)
+        self.act3 = nn.LeakyReLU()
 
-        return dist, mu, logvar
+        if in_filters<32 :
+            self.GroupNorm = nn.GroupNorm(8, in_filters)
+            self.bn0 = nn.GroupNorm(8, out_filters)
+            self.bn0_2 = nn.GroupNorm(8, out_filters)
+            self.bn1 = nn.GroupNorm(8, out_filters)
+            self.bn2 = nn.GroupNorm(8, out_filters)
+        else :
+            self.GroupNorm = nn.GroupNorm(32, in_filters)
+            self.bn0 = nn.GroupNorm(32, out_filters)
+            self.bn0_2 = nn.GroupNorm(32, out_filters)
+            self.bn1 = nn.GroupNorm(32, out_filters)
+            self.bn2 = nn.GroupNorm(32, out_filters)
 
-    
-class Encoder_xy(nn.Module):
-    def __init__(self, latent_size):
-        super(Encoder_xy, self).__init__()
-        
-        # 1. Hyperparemeters
-        voxel_channel = 128
-        target_channel = 1
-        # 2 Voxel Branch
-        
-        
-        self.voxel_encoder1 = nn.Sequential(
-            nn.Conv3d(int(voxel_channel), int(voxel_channel*1.5), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(voxel_channel*1.5), int(voxel_channel*1.5), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        self.voxel_encoder2 = nn.Sequential(
-            nn.MaxPool3d(2),
-            nn.Conv3d(int(voxel_channel*1.5), int(voxel_channel*2), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(voxel_channel*2), int(voxel_channel*2), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        self.voxel_encoder3 = nn.Sequential(
-            nn.MaxPool3d(2),
-            nn.Conv3d(int(voxel_channel*2), int(voxel_channel*2.5), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(voxel_channel*2.5), int(voxel_channel*2.5), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        self.voxel_encoder4 = nn.Sequential(
-            nn.MaxPool3d(2),
-            nn.Conv3d(int(voxel_channel*2.5), int(voxel_channel*3), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(voxel_channel*3), int(voxel_channel*3), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        # 2.5 Target Branch
-        self.target_encoder1 = nn.Sequential(
-            nn.Conv3d(int(target_channel), int(target_channel*2), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(target_channel*2), int(target_channel*2), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        self.target_encoder2 = nn.Sequential(
-            nn.MaxPool3d(2),
-            nn.Conv3d(int(target_channel*2), int(target_channel*4), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(target_channel*4), int(target_channel*4), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        self.target_encoder3 = nn.Sequential(
-            nn.MaxPool3d(2),
-            nn.Conv3d(int(target_channel*4), int(target_channel*8), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(target_channel*8), int(target_channel*8), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        self.target_encoder4 = nn.Sequential(
-            nn.MaxPool3d(2),
-            nn.Conv3d(int(target_channel*8), int(target_channel*16), kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv3d(int(target_channel*16), int(target_channel*16), kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
-        
-        
-        # 3. Combine Branch
-        self.fc1 = nn.Linear(384 * 16 * 16 * 2 + 16 * 4 * 32 * 32, latent_size)
-        self.fc2 = nn.Linear(384 * 16 * 16 * 2 + 16 * 4 * 32 * 32, latent_size)
-        
-        
-    def forward(self, x3d_input, target_input):
-        '''
-        input:
-            target: torch.Size([1, 256, 256, 32])
-            x3d: torch.Size([1, 128, 128, 128, 16])
-        '''
-        
-        # 1.Voxel Branch
-        
-        x3d_input = self.voxel_encoder1(x3d_input) # torch.Size([1, 192, 16, 128, 128])
-        x3d_input = self.voxel_encoder2(x3d_input) # torch.Size([1, 256, 8, 64, 64])
-        x3d_input = self.voxel_encoder3(x3d_input) # torch.Size([1, 320, 4, 32, 32])
-        x3d_input = self.voxel_encoder4(x3d_input) # torch.Size([1, 384, 2, 16, 16])
-        
-        x3d_input = x3d_input.view(1, 384 * 16 * 16 * 2)  # [1, 196,608]
-        
-        # 2.Target Branch
-        
-        target_input = self.target_encoder1(target_input)  # torch.Size([1, 2, 32, 256, 256])
-        target_input = self.target_encoder2(target_input)  # torch.Size([1, 4, 16, 128, 128])
-        target_input = self.target_encoder3(target_input)  # torch.Size([1, 8, 8, 64, 64])
-        target_input = self.target_encoder4(target_input)  # torch.Size([1, 16, 4, 32, 32])
 
-        target_input = target_input.view(1, 16 * 4 * 32 *32)  # [1, 16,384]
-        
-        # 3.Combined Branch
-        combined_features = torch.cat((x3d_input, target_input), dim=1)  # torch.Size([1, 196,608 + 16,384])
-        
-        mu = self.fc1(combined_features)
-        logvar = self.fc2(combined_features)
-        dist = Independent(Normal(loc=mu, scale=torch.exp(logvar)), 1)
+    def forward(self, x):
+        shortcut = self.conv1(x)
+        shortcut = self.act1(shortcut)
+        shortcut = self.bn0(shortcut)
 
-        return dist, mu, logvar
+        shortcut = self.conv1_2(shortcut)
+        shortcut = self.act1_2(shortcut)
+        shortcut = self.bn0_2(shortcut)
+
+        resA = self.conv2(x) 
+        resA = self.act2(resA)
+        resA = self.bn1(resA)
+
+        resA = self.conv3(resA) 
+        resA = self.act3(resA)
+        resA = self.bn2(resA)
+        resA += shortcut
+
+        return resA
+
+class DownBlock(nn.Module):
+    def __init__(self, in_filters, out_filters, pooling=True, drop_out=True, height_pooling=False):
+        super(DownBlock, self).__init__()
+        self.pooling = pooling
+        self.drop_out = drop_out
+        self.residual_block = Asymmetric_Residual_Block(in_filters, out_filters)
+        if pooling:
+            if height_pooling:
+                self.pool = nn.Conv3d(out_filters, out_filters, kernel_size=3, stride=2,padding=1, bias=False)
+            else:
+                self.pool = nn.Conv3d(out_filters, out_filters, kernel_size=3, stride=(2, 2, 1),padding=1, bias=False)
+
+    def forward(self, x):
+        resA = self.residual_block(x)
+        if self.pooling:
+            resB = self.pool(resA) 
+            return resB, resA
+        else:
+            return resA
+
+def l2norm(t):
+    return F.normalize(t, dim = -1)
+
+class Attention(nn.Module):
+    def __init__(self, dim, heads = 4, scale = 10):
+        super().__init__()
+        self.scale = scale
+        self.heads = heads
+        self.to_qkv = conv1x1(dim, dim*3, stride=1)
+        self.to_out = conv1x1(dim, dim, stride=1)
+
+    def forward(self, x):
+        b, c, h, w, Z = x.shape
+        qkv = self.to_qkv(x).chunk(3, dim = 1)
+        q, k, v = map(lambda t: rearrange(t, 'b (h c) x y z-> b h c (x y z)', h = self.heads), qkv)
+
+        q, k = map(l2norm, (q, k))
+
+        sim = einsum('b h d i, b h d j -> b h i j', q, k) * self.scale
+        attn = sim.softmax(dim = -1)
+        out = einsum('b h i j, b h d j -> b h i d', attn, v)
+        out = rearrange(out, 'b h (x y z) d -> b (h d) x y z', x = h, y = w, z = Z)
+        return self.to_out(out)
+
+class C_Encoder(nn.Module):
+    def __init__(self, nclasses=20, init_size=16, l_size='882', attention=True):
+        super(C_Encoder, self).__init__()
+        self.nclasses = nclasses
+        self.l_size = l_size
+        self.attention = attention
+
+        self.embedding = nn.Embedding(nclasses, init_size)
+
+        self.A = Asymmetric_Residual_Block(init_size, init_size)
+
+        self.downBlock1 = DownBlock(init_size, 2 * init_size, height_pooling=True)
+        self.downBlock2 = DownBlock(2 * init_size, 4 * init_size, height_pooling=True)
+        self.downBlock3 = DownBlock(4 * init_size, 8 * init_size, height_pooling=False)
+        self.downBlock4 = DownBlock(8 * init_size, 16 * init_size, height_pooling=False)
+        
+        if self.l_size == '32322':
+            self.midBlock1 = Asymmetric_Residual_Block(4 * init_size, 4 * init_size)
+            self.attention = Attention(4 * init_size, 32)
+            self.midBlock2 = Asymmetric_Residual_Block(4 * init_size, 4 * init_size)
+            self.out = nn.Conv3d(4 * init_size, nclasses, kernel_size=3, stride=1, padding=1,bias=True)
+        elif self.l_size == '16162':
+            self.midBlock1 = Asymmetric_Residual_Block(8 * init_size, 8 * init_size)
+            self.attention = Attention(8 * init_size, 32)
+            self.midBlock2 = Asymmetric_Residual_Block(8 * init_size, 8 * init_size)
+            self.out = nn.Conv3d(8 * init_size, nclasses, kernel_size=3, stride=1, padding=1,bias=True)
+        elif self.l_size == '882':
+            self.midBlock1 = Asymmetric_Residual_Block(16 * init_size, 16 * init_size)
+            self.attention = Attention(16 * init_size, 32)
+            self.midBlock2 = Asymmetric_Residual_Block(16 * init_size, 16 * init_size)
+            self.out = nn.Conv3d(16 * init_size, nclasses, kernel_size=3, stride=1, padding=1,bias=True)
+        
+    def forward(self, x, out_conv=True):
+        x = self.embedding(x)
+        x = x.permute(0, 4, 1, 2, 3)
+        
+        x = self.A(x)
+        x, down1b = self.downBlock1(x)
+        x, down2b = self.downBlock2(x)
+
+        if self.l_size == '882':
+            x, down3b = self.downBlock3(x)
+            x, down4b = self.downBlock4(x)
+        elif self.l_size == '16162':
+            x, down3b = self.downBlock3(x)
+        
+        if self.attention : 
+            x = self.midBlock1(x) # (4, 128, 32, 32, 2)
+            x = self.attention(x)
+            x = self.midBlock2(x) # (4, 128, 32, 32, 2)
+        if out_conv : 
+            x = self.out(x)
+        return x
+
+

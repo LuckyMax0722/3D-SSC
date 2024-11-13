@@ -5,7 +5,7 @@ import os
 import sys
 
 from torch.distributions import Normal, Independent, kl
-from .latent_v5 import Decoder, Encoder_xy, Encoder_x
+from .latent_v5 import vqvae, mlp_unet
 
 import sys
 import os
@@ -19,19 +19,38 @@ class LatentNet(nn.Module):
         super().__init__()
         
         # 1. Hyperparemeters     
-        feat_dim = 128
-        latent_dim = 128 * 128 * 16
+        self.encoder_y = vqvae(
+            init_size=CONF.SSD.init_size, 
+            num_classes=CONF.SSD.num_classes, 
+            vq_size=CONF.SSD.vq_size, 
+            l_size=CONF.SSD.l_size, 
+            l_attention=CONF.SSD.l_attention
+        )
         
-        self.x_encoder = Encoder_x(feat_dim, latent_dim)
-        self.xy_encoder = Encoder_xy(feat_dim)
-        
-        self.decoder = Decoder(feat_dim)
+        self.encoder_x = mlp_unet(
+            channel=CONF.SGN.embed_dims, # 128 
+            out_channel=CONF.SGN.embed_dims // 2, # 64 
+            feature=CONF.SGN.embed_dims // 2,  # 64
+            class_num=CONF.SGN.class_num, # 20
+        )
 
+        self.class_num = CONF.SGN.class_num # 20
+        self.l_size = CONF.SSD.l_size
+        self.fc1 = nn.Linear(CONF.SSD.out_dim, CONF.SSD.out_dim)
+        self.fc2 = nn.Linear(CONF.SSD.out_dim, CONF.SSD.out_dim)
+        
     
+    def dist(self, x):
+        mu = self.fc1(x)
+        logvar = self.fc2(x)
+        dist = Independent(Normal(loc=mu, scale=torch.exp(logvar)), 1)
+        
+        return mu, logvar, dist
+            
     def kl_divergence(self, posterior_latent_space, prior_latent_space):
         kl_div = kl.kl_divergence(posterior_latent_space, prior_latent_space)
         return kl_div
-
+    
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
         eps = torch.cuda.FloatTensor(std.size()).normal_()
@@ -40,25 +59,50 @@ class LatentNet(nn.Module):
     def forward_train(self, x3d, target):
         '''
         input:
-            target: torch.Size([1, 256, 256, 32])
+            target_2: torch.Size([1, 128, 128, 16])
             x3d: torch.Size([1, 128, 128, 128, 16])
         '''    
         
-        # Encoder x
-        self.prior, mux, logvarx = self.x_encoder(x3d)
-        
-        #z_noise_prior = self.reparametrize(mux, logvarx)
-        
-        # Encoder xy
-        self.posterior, muxy, logvarxy = self.xy_encoder(x3d, target)
-        
-        z_noise_post = self.reparametrize(muxy, logvarxy) 
+        # 1. Target Branch
 
-        x3d = self.decoder.forward_voxel(x3d, z_noise_post)
+        target_20 = torch.where(target == 255, 0, target.long())
         
-        lattent_loss = torch.mean(self.kl_divergence(self.posterior, self.prior))
+        latent_post, vq_loss_post, recons_loss_post = self.encoder_y.forward_post(target_20)  # --> torch.Size([1, 21, 32, 32, 4])
+
+        if self.l_size == '32322':
+            latent_post = latent_post.view(1, 20, 32 * 32 * 8)
+        elif self.l_size== '16162':
+            latent_post = latent_post.view(1, 20, 16 * 16 * 4)
+        elif self.l_size== '882':
+            latent_post = latent_post.view(1, 20, 8 * 8 * 2)
         
-        return x3d, lattent_loss
+        latent_post = latent_post[0]  # only keep 0-19
+
+        # 2. Input Branch
+        latent_prior = self.encoder_x(x3d)  # --> torch.Size([20, 1024])
+
+        # 3. KL Branch
+        mu_y, logvar_y, dist_post = self.dist(latent_post)  # torch.Size([20, 1024]) -->
+        mu_x, logvar_x, dist_prior = self.dist(latent_prior)     
+        
+        # 4. Loss
+        latent_loss = torch.sum(self.kl_divergence(dist_post, dist_prior))
+           
+        # 5 Reconstruction
+        z_noise_post = self.reparametrize(mu_y, logvar_y)  # --> torch.Size([20, 1024]) 
+        z_noise_post = z_noise_post.unsqueeze(0)  # torch.Size([20, 1024]) --> torch.Size([1, 20, 1024])
+        
+        # torch.Size([1, 20, 1024]) --> torch.Size([1, 20, 16, 16, 4])
+        if self.l_size == '32322':
+            z_noise_post = z_noise_post.view(1, 20, 32, 32, 8)
+        elif self.l_size== '16162':
+            z_noise_post = z_noise_post.view(1, 20, 16, 16, 4)
+        elif self.l_size== '882':
+            z_noise_post = z_noise_post.view(1, 20, 8, 8, 2)
+        
+        recons_logit = self.encoder_y.forward_prior(z_noise_post)  # --> torch.Size([1, 20, 128, 128, 16])
+
+        return recons_logit, recons_loss_post, vq_loss_post, latent_loss
 
     
     def forward_test(self, x3d):
@@ -66,19 +110,25 @@ class LatentNet(nn.Module):
         input:
             x3d: torch.Size([1, 128, 128, 128, 16])
         '''
+        # 2. Input Branch
+        latent_prior = self.encoder_x(x3d)  # --> torch.Size([20, 1024])
+
+        # 3. KL Branch
+        mu_x, logvar_x, dist_prior = self.dist(latent_prior)     
         
-        x3d = x3d.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 16, 128, 128]      
+        # 5 Reconstruction
+        z_noise_prior = self.reparametrize(mu_x, logvar_x)  # --> torch.Size([20, 1024]) 
+        z_noise_prior = z_noise_prior.unsqueeze(0)  # torch.Size([20, 1024]) --> torch.Size([1, 20, 1024])
         
-        '''
-            x3d: torch.Size([1, 128, 16, 128, 128])
-        '''
+        # torch.Size([1, 20, 1024]) --> torch.Size([1, 20, 16, 16, 4])
+        if self.l_size == '32322':
+            z_noise_prior = z_noise_prior.view(1, 20, 32, 32, 8)
+        elif self.l_size== '16162':
+            z_noise_prior = z_noise_prior.view(1, 20, 16, 16, 4)
+        elif self.l_size== '882':
+            z_noise_prior = z_noise_prior.view(1, 20, 8, 8, 2)
         
-        # Encoder x
-        self.prior, mux, logvarx = self.x_encoder(x3d)
-        
-        z_noise_prior = self.reparametrize(mux, logvarx)
-        
-        x3d = self.decoder.forward_voxel(x3d, z_noise_prior)
-        
-        return x3d
+        recons_logit = self.encoder_y.forward_prior(z_noise_prior)  # --> torch.Size([1, 20, 128, 128, 16])
+
+        return recons_logit
         
