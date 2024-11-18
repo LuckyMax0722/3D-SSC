@@ -165,8 +165,6 @@ class TPVFormerLayer(BaseModule):
         ffn_index = 0
         identity = query
 
-        print(self.attentions)
-        return
         for layer in self.operation_order:
             # cross view hybrid-attention
             if layer == 'self_attn':

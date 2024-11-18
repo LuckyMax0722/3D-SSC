@@ -6,3 +6,5 @@ __all__ = [
     'SemanticKittiDataset', 'Kitti360Dataset'
 ]
 
+
+from .semantic_kitti_label_dataset import SemanticKittiLabelDataModule
