@@ -54,14 +54,14 @@ class vqvae_2(torch.nn.Module):
         
         return quantized_latent, vq_loss, recons_loss
     
-    def encoder(self, x):
+    def forward_encoder(self, x):
         latent = self.encode(x) 
 
         quantized_latent, _, _, _ = self.vector_quantize(latent) 
     
         return quantized_latent
     
-    def decoder(self, x):
+    def forward_decoder(self, x):
         recons = self.decode(x)
         
         return recons

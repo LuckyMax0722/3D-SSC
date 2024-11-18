@@ -62,7 +62,7 @@ CONF.LATENTNET.USE_V5 = False
 CONF.LATENTNET.USE_V5_alpha = 0.1
 
 CONF.LATENTNET.USE_V5_1 = True
-CONF.LATENTNET.V5_1_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_VQVAE/checkpoints/vqvae-epoch=14-val_loss=0.21.ckpt'
+CONF.LATENTNET.V5_1_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/ckpt/vqvae-epoch=34-val_loss=0.18.ckpt'
 
 CONF.LATENTNET.LATENT_DIM = 128
 

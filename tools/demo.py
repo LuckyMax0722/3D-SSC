@@ -6,7 +6,7 @@
 from __future__ import division
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 import argparse
 import copy

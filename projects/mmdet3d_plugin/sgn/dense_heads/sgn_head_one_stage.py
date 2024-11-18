@@ -195,7 +195,8 @@ class SGNHeadOne(nn.Module):
 
             elif img_metas[0]['mode'] == 'test':
                 recons_logit = self.latent.forward_test(x3d)
-                
+        
+
         #import subprocess
         #subprocess.run(['nvidia-smi'], check=True)
          

@@ -153,10 +153,15 @@ elif CONF.LATENTNET.USE_V5_1:
             
             if os.path.exists(CONF.LATENTNET.V5_1_pretrain):
                 checkpoint = torch.load(CONF.LATENTNET.V5_1_pretrain)
-                self.encoder_y.load_state_dict(checkpoint['state_dict'])
+                
+                state_dict = checkpoint['state_dict']
+                state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
+                
+                self.encoder_y.load_state_dict(state_dict, strict=True)
+                
             else:
                 raise FileNotFoundError(f"Pretrained VQVAE model not found")
-
+            
             for param in self.encoder_y.parameters():
                 param.requires_grad = False
             
@@ -200,7 +205,7 @@ elif CONF.LATENTNET.USE_V5_1:
 
             target_20 = torch.where(target == 255, 0, target.long())
             
-            latent_post, _, _ = self.encoder_y.encoder(target_20)  # --> torch.Size([1, 21, 32, 32, 4])
+            latent_post = self.encoder_y.forward_encoder(target_20)  # --> torch.Size([1, 21, 32, 32, 4])
 
             if self.l_size == '32322':
                 latent_post = latent_post.view(1, 20, 32 * 32 * 8)
@@ -233,7 +238,7 @@ elif CONF.LATENTNET.USE_V5_1:
             elif self.l_size== '882':
                 z_noise_post = z_noise_post.view(1, 20, 8, 8, 2)
             
-            recons_logit = self.encoder_y.decoder(z_noise_post)  # --> torch.Size([1, 20, 128, 128, 16])
+            recons_logit = self.encoder_y.forward_decoder(z_noise_post)  # --> torch.Size([1, 20, 128, 128, 16])
 
             return recons_logit, latent_loss
 
@@ -261,6 +266,6 @@ elif CONF.LATENTNET.USE_V5_1:
             elif self.l_size== '882':
                 z_noise_prior = z_noise_prior.view(1, 20, 8, 8, 2)
             
-            recons_logit = self.encoder_y.decoder(z_noise_prior)  # --> torch.Size([1, 20, 128, 128, 16])
+            recons_logit = self.encoder_y.forward_decoder(z_noise_prior)  # --> torch.Size([1, 20, 128, 128, 16])
 
             return recons_logit
