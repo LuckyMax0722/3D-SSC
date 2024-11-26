@@ -113,11 +113,22 @@ class TPVFormerHead(BaseModule):
             feat_flatten.append(feat)
 
         feat_flatten = torch.cat(feat_flatten, 2) # num_cam, bs, hw++, c
+
         spatial_shapes = torch.as_tensor(
             spatial_shapes, dtype=torch.long, device=device)
         level_start_index = torch.cat((spatial_shapes.new_zeros(
             (1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
         feat_flatten = feat_flatten.permute(0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims)
+        
+        # depth
+        depth = img_metas[0][0]['depth_tensor'] # torch.Size([370, 1220, 256])
+        h, w, _ = depth.size()
+        depth = depth.unsqueeze(0) # torch.Size([370, 1220, 256]) --> torch.Size([1, 370, 1220, 256])
+        depth = depth.view(1, -1, self.embed_dims)  # Flatten depth map for projection (shape: [1, H*W, 256])  torch.Size([1, 451400, 256])
+        depth = depth.unsqueeze(2).to(device)  # [1, H*W, 1, 256]
+        
+        depth_spatial_shapes = torch.as_tensor([[h, w]], dtype=torch.long, device=device)
+        
         tpv_embed = self.encoder(
             [tpv_queries_hw, tpv_queries_zh, tpv_queries_wz],
             feat_flatten,
@@ -129,6 +140,8 @@ class TPVFormerHead(BaseModule):
             spatial_shapes=spatial_shapes,
             level_start_index=level_start_index,
             img_metas=img_metas,
+            depth=depth,
+            depth_spatial_shapes=depth_spatial_shapes,
         )
         
         return tpv_embed

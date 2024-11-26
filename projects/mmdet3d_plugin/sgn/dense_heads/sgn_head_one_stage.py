@@ -66,7 +66,7 @@ class SGNHeadOne(nn.Module):
         elif CONF.LATENTNET.USE_V4:
             from ..modules.latentnet_v4 import LatentNet
             self.latent = LatentNet()
-        elif CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1:
+        elif CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1 or CONF.LATENTNET.USE_V5_2:
             from ..modules.latentnet_v5 import LatentNet
             self.latent = LatentNet()
             
@@ -123,7 +123,7 @@ class SGNHeadOne(nn.Module):
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
             self.ssc_header = HeaderFullScaleV3(self.n_classes, feature=self.embed_dims//2)
         
-        elif CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1: 
+        elif CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1 or CONF.LATENTNET.USE_V5_2: 
             from projects.mmdet3d_plugin.sgn.utils.header import HeaderV5
             
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
@@ -196,6 +196,15 @@ class SGNHeadOne(nn.Module):
             elif img_metas[0]['mode'] == 'test':
                 recons_logit = self.latent.forward_test(x3d)
         
+        elif CONF.LATENTNET.USE_V5_2:
+            if img_metas[0]['mode'] == 'train':
+                target_2 = torch.from_numpy(img_metas[0]['target_1_2']).unsqueeze(0).to(target.device)
+                recons_logit, out['lattent_loss'] = self.latent.forward_train(x3d, target_2)
+            
+            elif img_metas[0]['mode'] == 'test':
+                recons_logit = self.latent.forward_test(x3d)
+            
+            recons_logit = recons_logit[:, :20, :, :, :]
 
         #import subprocess
         #subprocess.run(['nvidia-smi'], check=True)
@@ -266,7 +275,7 @@ class SGNHeadOne(nn.Module):
 
         vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
         
-        if CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1:
+        if CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1 or CONF.LATENTNET.USE_V5_2:
             ssc_dict = self.ssc_header(vox_feats_diff, recons_logit)
         else:
             ssc_dict = self.ssc_header(vox_feats_diff)  # --> ssc logit torch.Size([1, 20, 256, 256, 32])

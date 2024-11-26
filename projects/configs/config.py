@@ -61,8 +61,9 @@ CONF.LATENTNET.USE_V4 = False
 CONF.LATENTNET.USE_V5 = False
 CONF.LATENTNET.USE_V5_alpha = 0.1
 
-CONF.LATENTNET.USE_V5_1 = True
-CONF.LATENTNET.V5_1_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/ckpt/vqvae-epoch=34-val_loss=0.18.ckpt'
+CONF.LATENTNET.USE_V5_1 = False
+CONF.LATENTNET.USE_V5_2 = False
+CONF.LATENTNET.V5_1_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_VQVAE_20/checkpoints/vqvae-epoch=34-val_loss=0.18.ckpt'
 
 CONF.LATENTNET.LATENT_DIM = 128
 
@@ -83,7 +84,7 @@ CONF.TRANSFORMER = EasyDict()
 CONF.TRANSFORMER.DIM = 128
 CONF.TRANSFORMER.H = 24
 CONF.TRANSFORMER.W = 77
-CONF.TRANSFORMER.TCA = False  # TemporalCrossAttention
+CONF.TRANSFORMER.TCA = True  # TemporalCrossAttention
 
 # TODO: activate or deactivate Uncertainty part
 CONF.UNCERTAINTY = EasyDict()
@@ -91,7 +92,7 @@ CONF.UNCERTAINTY.USE_V1 = False
 
 # TODO: activate or deactivate TPV
 CONF.TPV = EasyDict()
-CONF.TPV.USE_V1 = False
+CONF.TPV.USE_V1 = True
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()
@@ -109,7 +110,7 @@ CONF.VP2P.INPUT_PT_NUM = 40960
 # Scene Scale Diffusion config
 CONF.SSD = EasyDict()
 CONF.SSD.init_size = 16
-CONF.SSD.num_classes = 20
+CONF.SSD.num_classes = 20  # 20 for 5.1 21 for 5.2
 CONF.SSD.vq_size = 100
 CONF.SSD.l_size = '16162'
 CONF.SSD.l_attention = True

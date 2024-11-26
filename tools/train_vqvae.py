@@ -34,9 +34,9 @@ class LitVQVAE(pl.LightningModule):
         _, vq_loss, recons_loss = self.model(x)
 
         loss = recons_loss + vq_loss
-        self.log("train_loss", loss)
-        self.log("train_recons_loss", recons_loss)
-        self.log("train_vq_loss", vq_loss)
+        self.log("train_loss", loss, on_epoch=True, prog_bar=True)
+        self.log("train_recons_loss", recons_loss, on_epoch=True, prog_bar=True)
+        self.log("train_vq_loss", vq_loss, on_epoch=True, prog_bar=True)
         
         return loss
 
@@ -47,8 +47,8 @@ class LitVQVAE(pl.LightningModule):
 
         loss = recons_loss + vq_loss
         self.log("val_loss", loss, on_epoch=True)
-        self.log("val_recons_loss", recons_loss)
-        self.log("val_vq_loss", vq_loss)
+        self.log("val_recons_loss", recons_loss, on_epoch=True, prog_bar=True)
+        self.log("val_vq_loss", vq_loss, on_epoch=True, prog_bar=True)
     
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr)
@@ -66,7 +66,7 @@ class LitVQVAE(pl.LightningModule):
         }
 
 if __name__ == "__main__":
-    output_dir = os.path.join(CONF.PATH.OUTPUT, 'output_VQVAE')
+    output_dir = os.path.join(CONF.PATH.OUTPUT, 'output_VQVAE_21')
     os.makedirs(output_dir, exist_ok=True)
     
     # Init Model
@@ -112,9 +112,6 @@ if __name__ == "__main__":
         name='logs'  
     )
     
-    # GPU Device
-    device_stats = DeviceStatsMonitor()
-    
     # Trainer
     trainer = pl.Trainer(
         benchmark=True,
@@ -122,7 +119,7 @@ if __name__ == "__main__":
         devices=1,          
         strategy="ddp",     
         max_epochs=100,      
-        callbacks=[early_stop_callback, checkpoint_callback, device_stats],
+        callbacks=[early_stop_callback, checkpoint_callback],
         logger=logger,
         enable_progress_bar=True,
         log_every_n_steps=10,

@@ -113,15 +113,16 @@ class TPVCrossViewHybridAttention(BaseModule):
         self._is_init = True
 
     def forward(self,
-                query,
-                key=None,
-                value=None,
-                identity=None,
-                query_pos=None,
+                query,  # <-- torch.Size([1, 65536, 256]) (bs, self.tpv_h * self.tpv_w, self.embed_dims)
+                key=None, # <-- None
+                value=None, # <-- None
+                identity=None, # <-- None
+                query_pos=None,  # <-- positional_encoding
                 reference_points=None,
-                spatial_shapes=None,
+                spatial_shapes=None,  # <-- tensor([[256, 256]], device='cuda:0')
                 level_start_index=None,
                 **kwargs):
+        
         """Forward Function of MultiScaleDeformAttention.
 
         Args:
@@ -158,19 +159,21 @@ class TPVCrossViewHybridAttention(BaseModule):
              Tensor: forwarded results with shape [bs, num_query, embed_dims].
         """
 
-        if value is None:
+        if value is None:  # None
             value = torch.cat([query, query], 0)
 
-        if identity is None:
+        if identity is None:  # None
             identity = query
-        if query_pos is not None:
+        if query_pos is not None:  # Not None
             query = query + query_pos
-        if not self.batch_first:
+        if not self.batch_first:  # True
             # change to (bs, num_query ,embed_dims)
             query = query.permute(1, 0, 2)
             value = value.permute(1, 0, 2)
-        bs,  num_query, _ = query.shape
-        _, num_value, _ = value.shape
+            
+        bs,  num_query, _ = query.shape  # <-- torch.Size([1, 65536, 256])  num_query = 256 * 256
+        _, num_value, _ = value.shape  # <-- torch.Size([1, 65536, 256])  num_value = 256 * 256
+        
         assert (spatial_shapes[:, 0] * spatial_shapes[:, 1]).sum() == num_value
         assert self.num_tpv_queue == 2
 

@@ -78,7 +78,7 @@ class TPVFormerLayer(BaseModule):
         self.batch_first = batch_first
 
         num_attn = operation_order.count('self_attn') + operation_order.count(
-            'cross_attn')
+            'cross_attn') + operation_order.count('depth_cross_attn')
         if isinstance(attn_cfgs, dict):
             attn_cfgs = [copy.deepcopy(attn_cfgs) for _ in range(num_attn)]
         else:
@@ -95,7 +95,7 @@ class TPVFormerLayer(BaseModule):
 
         index = 0
         for operation_name in operation_order:
-            if operation_name in ['self_attn', 'cross_attn']:
+            if operation_name in ['self_attn', 'cross_attn', 'depth_cross_attn']:
                 if 'batch_first' in attn_cfgs[index]:
                     assert self.batch_first == attn_cfgs[index]['batch_first']
                 else:
@@ -142,6 +142,8 @@ class TPVFormerLayer(BaseModule):
                 tpv_masks=None,
                 spatial_shapes=None,
                 level_start_index=None,
+                depth=None,
+                depth_spatial_shapes=None,
                 **kwargs):
         """
         **kwargs contains some specific arguments of attentions.
@@ -201,9 +203,25 @@ class TPVFormerLayer(BaseModule):
                 attn_index += 1
                 identity = query
 
+            # depth cross attention
+            elif layer == 'depth_cross_attn':
+                query = self.attentions[attn_index](
+                    query,
+                    depth,
+                    depth,
+                    identity if self.pre_norm else None,
+                    reference_points_cams=reference_points_cams,
+                    tpv_masks=tpv_masks,
+                    spatial_shapes=depth_spatial_shapes,
+                    level_start_index=level_start_index,
+                    **kwargs)
+                attn_index += 1
+                identity = query
+                
             elif layer == 'ffn':
                 query = self.ffns[ffn_index](
                     query, identity if self.pre_norm else None)
                 ffn_index += 1
+   
         query = torch.split(query, [tpv_h*tpv_w, tpv_z*tpv_h, tpv_w*tpv_z], dim=1)
         return query

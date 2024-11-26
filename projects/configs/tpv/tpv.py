@@ -87,8 +87,7 @@ model = dict(
                         embed_dims=_dim_,
                         num_levels=1),
                     dict(
-                        type='TPVImageCrossAttention',
-                        pc_range=point_cloud_range,
+                        type='ImageCrossAttention',
                         deformable_attention=dict(
                             type='TPVMSDeformableAttention3D',
                             embed_dims=_dim_,
@@ -104,11 +103,30 @@ model = dict(
                         tpv_h=tpv_h_,
                         tpv_w=tpv_w_,
                         tpv_z=tpv_z_,
-                    )
+                    ),
+                    dict(
+                        type='DepthCrossAttention',
+                        deformable_attention=dict(
+                            type='TPVMSDeformableAttention3D',
+                            embed_dims=_dim_,
+                            num_points=num_points,
+                            num_z_anchors=num_points_in_pillar,
+                            num_levels=_num_levels_,
+                            floor_sampling_offset=False,
+                            tpv_h=tpv_h_,
+                            tpv_w=tpv_w_,
+                            tpv_z=tpv_z_,
+                        ),
+                        embed_dims=_dim_,
+                        tpv_h=tpv_h_,
+                        tpv_w=tpv_w_,
+                        tpv_z=tpv_z_,
+                    ),
+                    
                 ],
                 feedforward_channels=_ffn_dim_,
                 ffn_dropout=0.1,
-                operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
+                operation_order=('self_attn', 'norm', 'cross_attn', 'norm', 'depth_cross_attn', 'norm', 
                                  'ffn', 'norm')))),
     )
 

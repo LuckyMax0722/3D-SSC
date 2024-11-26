@@ -95,7 +95,7 @@ class TPVFormerEncoder(TransformerLayerSequence):
 
         lidar2img = []
         for img_meta in img_metas:
-            lidar2img.append(img_meta[0]['lidar2img'][0])
+            lidar2img.append(img_meta[0]['lidar2img'][0]) # already assign to 1
             #lidar2img.append(img_meta['lidar2img'])
         lidar2img = np.asarray(lidar2img)
         lidar2img = reference_points.new_tensor(lidar2img)  # (B, N, 4, 4)
@@ -162,6 +162,8 @@ class TPVFormerEncoder(TransformerLayerSequence):
                 tpv_pos=None, # list
                 spatial_shapes=None,
                 level_start_index=None,
+                depth=None,
+                depth_spatial_shapes=None,
                 **kwargs):
         """Forward function for `TransformerDecoder`.
         Args:
@@ -174,10 +176,10 @@ class TPVFormerEncoder(TransformerLayerSequence):
                 (bs, num_query, 4) when as_two_stage,
                 otherwise has shape ((bs, num_query, 2).
         """
-        output = tpv_query
+        output = tpv_query  # tpv_query --> list[hw,zh,wz]
         intermediate = []
 
-        bs = tpv_query[0].shape[0]
+        bs = tpv_query[0].shape[0]  # tpv_query[0] --> torch.Size([1, 65536, 256])
 
         reference_points_cams, tpv_masks = [], []
         ref_3ds = [self.ref_3d_hw, self.ref_3d_zh, self.ref_3d_wz]
@@ -191,7 +193,7 @@ class TPVFormerEncoder(TransformerLayerSequence):
         hybird_ref_2d = torch.cat([ref_2d_hw, ref_2d_hw], 0)
         
         for lid, layer in enumerate(self.layers):
-            print(layer)
+
             output = layer(
                 tpv_query,
                 key,
@@ -206,6 +208,8 @@ class TPVFormerEncoder(TransformerLayerSequence):
                 level_start_index=level_start_index,
                 reference_points_cams=reference_points_cams,
                 tpv_masks=tpv_masks,
+                depth=depth,
+                depth_spatial_shapes=depth_spatial_shapes,
                 **kwargs)
             tpv_query = output
             if self.return_intermediate:

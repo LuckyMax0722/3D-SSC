@@ -443,3 +443,164 @@ class TPVMSDeformableAttention3D(BaseModule):
             output = [o.permute(1, 0, 2) for o in output]
 
         return output
+    
+    
+    @ATTENTION.register_module()
+    class ImageCrossAttention(BaseModule):
+        """Image cross attention module.
+        Args:
+            embed_dims (int): The embedding dimension of Attention.
+                Default: 256.
+            num_cams (int): The number of cameras
+            dropout (float): A Dropout layer on `inp_residual`.
+                Default: 0..
+            init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
+                Default: None.
+            deformable_attention: (dict): The config for the deformable attention used in SCA.
+        """
+
+        def __init__(self,
+                    embed_dims=256,
+                    num_cams=1,
+                    dropout=0.1,
+                    init_cfg=None,
+                    batch_first=False,
+                    deformable_attention=dict(
+                        type='MSDeformableAttention3D',
+                        embed_dims=256,
+                        num_levels=4),
+                    tpv_h=None,
+                    tpv_w=None,
+                    tpv_z=None,
+                    **kwargs
+                    ):
+            super().__init__(init_cfg)
+
+            self.init_cfg = init_cfg
+            self.dropout = nn.Dropout(dropout)
+            self.fp16_enabled = False
+            self.deformable_attention = build_attention(deformable_attention)
+            self.embed_dims = embed_dims
+            self.num_cams = num_cams
+            self.output_proj = nn.Linear(embed_dims, embed_dims)
+            self.batch_first = batch_first
+            self.tpv_h, self.tpv_w, self.tpv_z = tpv_h, tpv_w, tpv_z
+            self.init_weight()
+
+        def init_weight(self):
+            """Default initialization for Parameters of Module."""
+            xavier_init(self.output_proj, distribution='uniform', bias=0.)
+
+        @force_fp32(apply_to=('query', 'key', 'value', 'query_pos', 'reference_points_cam'))
+        def forward(self,
+                    query,
+                    key, # <-- torch.Size([1, 9627, 1, 256]) (num_cam, H*W, bs, embed_dims)
+                    value,  # <-- torch.Size([1, 9627, 1, 256]) (num_cam, H*W, bs, embed_dims)
+                    residual=None,
+                    spatial_shapes=None,
+                    reference_points_cams=None,
+                    tpv_masks=None,
+                    level_start_index=None,
+                    **kwargs):
+            """Forward Function of Detr3DCrossAtten.
+            Args:
+                query (Tensor): Query of Transformer with shape
+                    (bs, num_query, embed_dims).
+                key (Tensor): The key tensor with shape
+                    `(num_cam, H*W++, bs, embed_dims)`.
+                value (Tensor): The value tensor with shape
+                    `(num_cam, H*W++, bs, embed_dims)`.
+                residual (Tensor): The tensor used for addition, with the
+                    same shape as `x`. Default None. If None, `x` will be used.
+                query_pos (Tensor): The positional encoding for `query`.
+                    Default: None.
+                key_pos (Tensor): The positional encoding for  `key`. Default
+                    None.
+                reference_points (Tensor):  The normalized reference
+                    points with shape (bs, num_query, 4),
+                    all elements is range in [0, 1], top-left (0,0),
+                    bottom-right (1, 1), including padding area.
+                    or (N, Length_{query}, num_levels, 4), add
+                    additional two dimensions is (w, h) to
+                    form reference boxes.
+                key_padding_mask (Tensor): ByteTensor for `query`, with
+                    shape [bs, num_key].
+                spatial_shapes (Tensor): Spatial shape of features in
+                    different level. With shape  (num_levels, 2),
+                    last dimension represent (h, w).
+                level_start_index (Tensor): The start index of each level.
+                    A tensor has shape (num_levels) and can be represented
+                    as [0, h_0*w_0, h_0*w_0+h_1*w_1, ...].
+            Returns:
+                Tensor: forwarded results with shape [num_query, bs, embed_dims].
+            """
+            
+            if key is None:
+                key = query
+            if value is None:
+                value = key
+
+            if residual is None:
+                inp_residual = query
+
+            bs, num_query, _ = query.size()
+
+            queries = torch.split(query, [self.tpv_h*self.tpv_w, self.tpv_z*self.tpv_h, self.tpv_w*self.tpv_z], dim=1)
+            if residual is None:
+                slots = [torch.zeros_like(q) for q in queries]
+            indexeses = []
+            max_lens = []
+            queries_rebatches = []
+            reference_points_rebatches = []
+            for tpv_idx, tpv_mask in enumerate(tpv_masks):
+                indexes = []
+                for _, mask_per_img in enumerate(tpv_mask):
+                    index_query_per_img = mask_per_img[0].sum(-1).nonzero().squeeze(-1)
+                    indexes.append(index_query_per_img)
+                max_len = max([len(each) for each in indexes])
+                max_lens.append(max_len)
+                indexeses.append(indexes)
+
+                reference_points_cam = reference_points_cams[tpv_idx]
+                D = reference_points_cam.size(3)
+
+                queries_rebatch = queries[tpv_idx].new_zeros(
+                    [bs * self.num_cams, max_len, self.embed_dims])
+                reference_points_rebatch = reference_points_cam.new_zeros(
+                    [bs * self.num_cams, max_len, D, 2])
+
+                for i, reference_points_per_img in enumerate(reference_points_cam):
+                    for j in range(bs):
+                        index_query_per_img = indexes[i]
+                        queries_rebatch[j * self.num_cams + i, :len(index_query_per_img)] = queries[tpv_idx][j, index_query_per_img]
+                        reference_points_rebatch[j * self.num_cams + i, :len(index_query_per_img)] = reference_points_per_img[j, index_query_per_img]
+                
+                queries_rebatches.append(queries_rebatch)
+                reference_points_rebatches.append(reference_points_rebatch)
+
+            num_cams, l, bs, embed_dims = key.shape
+
+            key = key.permute(0, 2, 1, 3).view(
+                self.num_cams * bs, l, self.embed_dims)
+            value = value.permute(0, 2, 1, 3).view(
+                self.num_cams * bs, l, self.embed_dims)
+
+            queries = self.deformable_attention(
+                query=queries_rebatches, key=key, value=value,
+                reference_points=reference_points_rebatches, 
+                spatial_shapes=spatial_shapes,
+                level_start_index=level_start_index)
+            
+            for tpv_idx, indexes in enumerate(indexeses):
+                for i, index_query_per_img in enumerate(indexes):
+                    for j in range(bs):
+                        slots[tpv_idx][j, index_query_per_img] += queries[tpv_idx][j * self.num_cams + i, :len(index_query_per_img)]
+
+                count = tpv_masks[tpv_idx].sum(-1) > 0
+                count = count.permute(1, 2, 0).sum(-1)
+                count = torch.clamp(count, min=1.0)
+                slots[tpv_idx] = slots[tpv_idx] / count[..., None]
+            slots = torch.cat(slots, dim=1)
+            slots = self.output_proj(slots)
+
+            return self.dropout(slots) + inp_residual

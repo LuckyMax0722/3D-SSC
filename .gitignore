@@ -23,3 +23,4 @@ lidar
 kitti360
 output
 ckpt/vqvae-epoch=34-val_loss=0.18.ckpt
+ckpt/vqvae-epoch=56-val_loss=0.24.ckpt

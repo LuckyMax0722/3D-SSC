@@ -7,7 +7,7 @@
 from __future__ import division
 
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1, 2, 3"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "2, 3"
 #export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 import argparse
@@ -113,9 +113,9 @@ def main():
 
     args.config = CONF.PATH.SGN_CONFIG
     #args.work_dir = CONF.PATH.OUTPUT
-    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_LatentNetV5_From_0')
+    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_TCA_From_0')
     #args.resume_from = CONF.PATH.CHECKPOINT_SGN
-    args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_SGN_LatentNetV5_From_0/epoch_16.pth'
+    #args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_SGN_LatentNetV5_1_From_0/epoch_33.pth'
     args.deterministic = True
     args.launcher = 'pytorch'
 

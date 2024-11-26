@@ -10,6 +10,7 @@ from torchvision import transforms
 from mmdet.datasets import DATASETS
 import mmcv
 from mmcv.parallel import DataContainer as DC
+import torch.nn.functional as F
 
 import open3d as o3d
 
@@ -530,7 +531,28 @@ class SemanticKittiDataset(Dataset):
                 depth_list.append(depth)
 
             depth_tensor = torch.stack(depth_list, dim=0) #[5, 1, 370, 1220]
+        
+        elif CONF.TPV.USE_V1:
+            depth_path = os.path.join(
+                CONF.PATH.DATA_DATASETS_MSNET3D_DEPTH, "sequences", sequence, frame_id + ".npy"
+            )
             
+            depth = np.load(depth_path)
+            
+            depth = depth[:self.img_H, :self.img_W]  # crop depth [H, W]
+            
+            depth = np.clip(depth, 0, 80) # max depth = 80
+            depth = depth / 80.0  # normalize
+            
+            depth = np.expand_dims(depth, axis=(0)) # [1, 370, 1220] [C, H, W]
+            
+            depth = torch.from_numpy(depth).float()
+            
+            depth = torch.floor(depth * 255).long()  # [1, H, W] -> [1, H, W]
+            
+            depth = F.one_hot(depth.squeeze(0), num_classes=256).float()  # [H, W, 256]
+        
+                
         # load ground truth
         if self.split == 'train' or self.split == 'val':
             target_1_2_path = os.path.join(self.label_root, sequence, frame_id + "_1_2.npy")
@@ -566,6 +588,7 @@ class SemanticKittiDataset(Dataset):
         
         elif CONF.TPV.USE_V1:
             meta_dict['img_shape'] = [(384,1248)]
+            meta_dict['depth_tensor'] = depth
         else:
             pass
         

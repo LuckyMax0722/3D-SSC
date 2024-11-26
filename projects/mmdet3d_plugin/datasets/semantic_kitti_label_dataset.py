@@ -57,7 +57,7 @@ class SemanticKittiLabelDataset(Dataset):
             target_1_2 = np.load(file_path)
             target_1_2 = target_1_2.reshape(128, 128, 16).astype(np.float32)
             
-            target_1_2[target_1_2 == 255] = 0  # class 21 --> 20
+            target_1_2[target_1_2 == 255] = 20  # class 21
         else:
             target_1_2 = None
 
@@ -98,13 +98,17 @@ class SemanticKittiLabelDataModule(pl.LightningDataModule):
 
 
 if __name__ == "__main__":
+    train_dataset = SemanticKittiLabelDataset(split='train', data_root=CONF.PATH.DATA_DATASETS)
+    train_dataset[0]
     data_module = SemanticKittiLabelDataModule(data_root=CONF.PATH.DATA_DATASETS, batch_size=32, num_workers=4)
 
 
     data_module.setup()
     train_loader = data_module.train_dataloader()
     
+    '''
     for batch in train_loader:
         print(batch)
         break
+    '''
 
