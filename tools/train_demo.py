@@ -7,7 +7,7 @@
 from __future__ import division
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0, 1"
 #export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 import argparse
@@ -111,11 +111,15 @@ def parse_args():
 def main():
     args = parse_args()
 
-    args.config = CONF.PATH.SGN_CONFIG
+    if CONF.LATENTNET.USE_V6:
+        args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/sgn/sgn-T-one-stage-guidance-latent-v6.py'
+    else:
+        args.config = CONF.PATH.SGN_CONFIG
+        
     #args.work_dir = CONF.PATH.OUTPUT
-    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_TCA_From_0')
+    args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_LatentNetV6_From_0')
     #args.resume_from = CONF.PATH.CHECKPOINT_SGN
-    args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_SGN_TCA_From_0/epoch_19.pth'
+    #args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_SGN_TCA_From_0/epoch_19.pth'
     args.deterministic = True
     args.launcher = 'pytorch'
 

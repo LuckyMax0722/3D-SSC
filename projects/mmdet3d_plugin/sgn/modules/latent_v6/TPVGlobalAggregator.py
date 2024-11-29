@@ -66,14 +66,17 @@ class TPVGlobalAggregator(BaseModule):
         tpv_encoder_neck=None,
     ):
         super().__init__()
-
+        self.tpv_encoder_backbone_dict = tpv_encoder_backbone_dict
+        self.tpv_encoder_neck = tpv_encoder_neck
+        
         # max pooling
         self.tpv_pooler = TPVPooler(
             embed_dims=embed_dims, split=split, grid_size=grid_size
         )
 
-        self.tpv_encoder_backbone = builder.build_backbone(tpv_encoder_backbone_dict)
-        self.tpv_encoder_neck = builder.build_neck(tpv_encoder_neck)
+        if tpv_encoder_backbone_dict and tpv_encoder_neck:
+            self.tpv_encoder_backbone = builder.build_backbone(tpv_encoder_backbone_dict)
+            self.tpv_encoder_neck = builder.build_neck(tpv_encoder_neck)
     
     def forward(self, x):
         """
@@ -81,56 +84,11 @@ class TPVGlobalAggregator(BaseModule):
         yz: [b, c, h, w, z] -> [b, c, w, z]
         zx: [b, c, h, w, z] -> [b, c, h, z]
         """
-        x_3view = self.tpv_pooler(x)
         
-        '''
-        x_3view:
-            output: list -->
-            [
-                torch.Size([1, 128, 128, 128])
-                torch.Size([1, 128, 128, 16])
-                torch.Size([1, 128, 128, 16])
-            ]
-        '''
-
-        x_3view = self.tpv_encoder_backbone(x_3view)
-
-        '''
-        x_3view:
-            output: list[list] -->
-            [
-                [
-                    torch.Size([1, 192, 64, 64])
-                    torch.Size([1, 384, 32, 32])
-                    torch.Size([1, 768, 16, 16])
-                ],
-                [
-                    torch.Size([1, 192, 64, 8])
-                    torch.Size([1, 384, 32, 4])
-                    torch.Size([1, 768, 16, 2])
-                ],
-                [
-                    torch.Size([1, 192, 64, 8])
-                    torch.Size([1, 384, 32, 4])
-                    torch.Size([1, 768, 16, 2])
-                ]
-            ]
+        x_3view = self.tpv_pooler(x)
             
         '''
-        tpv_list = []
-        for x_tpv in x_3view:
-            x_tpv = self.tpv_encoder_neck(x_tpv)
-            if not isinstance(x_tpv, torch.Tensor):
-                x_tpv = x_tpv[0]
-            tpv_list.append(x_tpv)
-        
-        
-        tpv_list[0] = F.interpolate(tpv_list[0], size=(128, 128), mode='bilinear')
-        tpv_list[1] = F.interpolate(tpv_list[1], size=(128, 16), mode='bilinear')
-        tpv_list[2] = F.interpolate(tpv_list[2], size=(128, 16), mode='bilinear')
-
-        '''
-        tpv_list:
+        x_3view:
             output: list -->
             [
                 torch.Size([1, 128, 128, 128])
@@ -138,21 +96,75 @@ class TPVGlobalAggregator(BaseModule):
                 torch.Size([1, 128, 128, 16])
             ]
         '''
-           
-        '''
-        tpv_list[0] = F.interpolate(tpv_list[0], size=(128, 128), mode='bilinear').unsqueeze(-1)
-        tpv_list[1] = F.interpolate(tpv_list[1], size=(128, 16), mode='bilinear').unsqueeze(2)
-        tpv_list[2] = F.interpolate(tpv_list[2], size=(128, 16), mode='bilinear').unsqueeze(3)
+            
+        if not self.tpv_encoder_backbone_dict and not self.tpv_encoder_neck:
+            
+            return x_3view
+        
+        else:
 
+            x_3view = self.tpv_encoder_backbone(x_3view)
+
+            '''
+            x_3view:
+                output: list[list] -->
+                [
+                    [
+                        torch.Size([1, 192, 64, 64])
+                        torch.Size([1, 384, 32, 32])
+                        torch.Size([1, 768, 16, 16])
+                    ],
+                    [
+                        torch.Size([1, 192, 64, 8])
+                        torch.Size([1, 384, 32, 4])
+                        torch.Size([1, 768, 16, 2])
+                    ],
+                    [
+                        torch.Size([1, 192, 64, 8])
+                        torch.Size([1, 384, 32, 4])
+                        torch.Size([1, 768, 16, 2])
+                    ]
+                ]
+                
+            '''
+            tpv_list = []
+            for x_tpv in x_3view:
+                x_tpv = self.tpv_encoder_neck(x_tpv)
+                if not isinstance(x_tpv, torch.Tensor):
+                    x_tpv = x_tpv[0]
+                tpv_list.append(x_tpv)
+            
+            
+            tpv_list[0] = F.interpolate(tpv_list[0], size=(128, 128), mode='bilinear')
+            tpv_list[1] = F.interpolate(tpv_list[1], size=(128, 16), mode='bilinear')
+            tpv_list[2] = F.interpolate(tpv_list[2], size=(128, 16), mode='bilinear')
+
+            '''
+            tpv_list:
+                output: list -->
+                [
+                    torch.Size([1, 128, 128, 128])
+                    torch.Size([1, 128, 128, 16])
+                    torch.Size([1, 128, 128, 16])
+                ]
+            '''
+            
+            return tpv_list
         
-        tpv_list:
-            output: list -->
-            [
-                torch.Size([1, 128, 128, 128, 1])
-                torch.Size([1, 128, 1, 128, 16])
-                torch.Size([1, 128, 128, 1, 16])
-            ]
-        '''
+            '''
+            tpv_list[0] = F.interpolate(tpv_list[0], size=(128, 128), mode='bilinear').unsqueeze(-1)
+            tpv_list[1] = F.interpolate(tpv_list[1], size=(128, 16), mode='bilinear').unsqueeze(2)
+            tpv_list[2] = F.interpolate(tpv_list[2], size=(128, 16), mode='bilinear').unsqueeze(3)
+
+            
+            tpv_list:
+                output: list -->
+                [
+                    torch.Size([1, 128, 128, 128, 1])
+                    torch.Size([1, 128, 1, 128, 16])
+                    torch.Size([1, 128, 128, 1, 16])
+                ]
+            '''
+            
         
-        return tpv_list
-    
+        

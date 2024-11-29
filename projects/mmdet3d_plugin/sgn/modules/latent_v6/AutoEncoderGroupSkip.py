@@ -87,33 +87,6 @@ class AutoEncoderGroupSkip(BaseModule):
         self.pos_num_freq = 6  # the defualt value 6 like NeRF
         self.voxel_fea = voxel_fea
         self.triplane = triplane
-        
-        print('triplane features are summed for decoding...')
-        if dataset == 'kitti':
-            if voxel_fea:
-                self.geo_convs = nn.Sequential(
-                    nn.Conv3d(geo_feat_channels, feat_channel_up, kernel_size=3, stride=1, padding=1, bias=True, padding_mode=padding_mode),
-                    nn.InstanceNorm3d(geo_feat_channels)
-                )
-            else : 
-                if triplane:
-                    self.geo_convs = TriplaneGroupResnetBlock(geo_feat_channels, feat_channel_up, ks=5, input_norm=False, input_act=False)
-                else : 
-                    self.geo_convs = BeVplaneGroupResnetBlock(geo_feat_channels, feat_channel_up, ks=5, input_norm=False, input_act=False)
-        else:
-            self.geo_convs = TriplaneGroupResnetBlock(geo_feat_channels, feat_channel_up, ks=3, input_norm=False, input_act=False)
-
-        print(f'build shared decoder... (PE: {self.pos})\n')
-        if self.pos:
-            self.geo_decoder = DecoderMLPSkipConcat(feat_channel_up+6*self.pos_num_freq, num_class, mlp_hidden_channels, mlp_hidden_layers)
-        else:
-            self.geo_decoder = DecoderMLPSkipConcat(feat_channel_up, num_class, mlp_hidden_channels, mlp_hidden_layers)
-
-    def geo_parameters(self):
-        return list(self.geo_encoder.parameters()) + list(self.geo_convs.parameters()) + list(self.geo_decoder.parameters())
-    
-    def tex_parameters(self):
-        return list(self.tex_encoder.parameters()) + list(self.tex_convs.parameters()) + list(self.tex_decoder.parameters())
 
     def encode(self, vol):
         x = vol.detach().clone()
@@ -135,62 +108,9 @@ class AutoEncoderGroupSkip(BaseModule):
             xz_feat = (self.norm(xz_feat) * 0.5).tanh()
             yz_feat = (self.norm(yz_feat) * 0.5).tanh()
             return [xy_feat, xz_feat, yz_feat]
-    
-    def sample_feature_plane2D(self, feat_map, x):
-        """Sample feature map at given coordinates"""
-        # feat_map: [bs, C, H, W]
-        # x: [bs, N, 2]
-        sample_coords = x.view(x.shape[0], 1, -1, 2) # sample_coords: [bs, 1, N, 2]
-        feat = F.grid_sample(feat_map, sample_coords.flip(-1), align_corners=False, padding_mode='border') # feat : [bs, C, 1, N]
-        feat = feat[:, :, 0, :] # feat : [bs, C, N]
-        feat = feat.transpose(1, 2) # feat : [bs, N, C]
-        return feat
 
-    def sample_feature_plane3D(self, vol_feat, x):
-        """Sample feature map at given coordinates"""
-        # feat_map: [bs, C, H, W, D]
-        # x: [bs, N, 3]
-        sample_coords = x.view(x.shape[0], 1, 1, -1, 3)
-        feat = F.grid_sample(vol_feat, sample_coords.flip(-1), align_corners=False, padding_mode='border') # feat : [bs, C, 1, 1, N]
-        feat = feat[:, :, 0, 0, :] # feat : [bs, C, N]
-        feat = feat.transpose(1, 2) # feat : [bs, N, C]
-        return feat 
-
-    def decode(self, feat_maps, query):        
-        if self.voxel_fea:
-            h_geo = self.geo_convs(feat_maps)
-            h_geo = self.sample_feature_plane3D(h_geo, query)
-            
-        else : 
-            # coords [N, 3]
-            coords_list = [[0, 1], [0, 2], [1, 2]]
-            geo_feat_maps = [fm[:, :self.geo_feat_dim] for fm in feat_maps]
-            geo_feat_maps = self.geo_convs(geo_feat_maps)
-
-            if self.triplane:
-                h_geo = 0
-                for i in range(3):
-                    h_geo += self.sample_feature_plane2D(geo_feat_maps[i], query[..., coords_list[i]]) # feat : [bs, N, C]
-            else :
-                h_geo = self.sample_feature_plane2D(geo_feat_maps[0], query[..., coords_list[0]]) # feat : [bs, N, C]
-            
-        if self.pos :
-            # multiply_PE_res = 1
-            # embed_fn, input_ch = get_embedder(multires=multiply_PE_res)
-            # sample_PE = embed_fn(query)
-            PE = []
-            for freq in range(self.pos_num_freq):
-                PE.append(torch.sin((2.**freq) * query))
-                PE.append(torch.cos((2.**freq) * query))
-
-            PE = torch.cat(PE, dim=-1)  # [bs, N, 6*self.pos_num_freq]
-            h_geo = torch.cat([h_geo, PE], dim=-1)
-
-        h = self.geo_decoder(h_geo) # h : [bs, N, 1]
-        return h
-    
     def forward(self, vol, query):
         feat_map = self.encode(vol)
         return feat_map
-        #return self.decode(feat_map, query)
+
     

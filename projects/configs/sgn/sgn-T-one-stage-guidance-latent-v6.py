@@ -71,8 +71,8 @@ model = dict(
                 pos=True,
                 feat_channel_up=64,
                 triplane=True,
-                mlp_hidden_channels=256,
-                mlp_hidden_layers=4,
+                mlp_hidden_channels=128,
+                mlp_hidden_layers=3,
                 dataset='kitti',
             ),
             
@@ -82,76 +82,78 @@ model = dict(
                 split=[8,8,8],
                 grid_size=[128,128,16],
                 
-                tpv_encoder_backbone_dict=dict(
-                    type='Swin',
-                    embed_dims=96,
-                    depths=[2, 2, 6, 2],
-                    num_heads=[3, 6, 12, 24],
-                    window_size=7,
-                    mlp_ratio=4,
-                    in_channels=128,
-                    patch_size=4,
-                    strides=[1,2,2,2],
-                    frozen_stages=-1,
-                    qkv_bias=True,
-                    qk_scale=None,
-                    drop_rate=0.,
-                    attn_drop_rate=0.,
-                    drop_path_rate=0.2,
-                    patch_norm=True,
-                    out_indices=[1,2,3],
-                    with_cp=False,
-                    convert_weights=True,
-                    init_cfg=dict(
-                        type='Pretrained',
-                        checkpoint=CONF.LATENTNET.V6_swin_pretrain),
-                        ),
-                tpv_encoder_neck=dict(
-                    type='GeneralizedLSSFPN',
-                    in_channels=[192, 384, 768],
-                    out_channels=_dim_,
-                    start_level=0,
-                    num_outs=3,
-                    norm_cfg=dict(
-                        type='BN2d',
-                        requires_grad=True,
-                        track_running_stats=False),
-                    act_cfg=dict(
-                        type='ReLU',
-                        inplace=True),
-                    upsample_cfg=dict(
-                        mode='bilinear',
-                        align_corners=False),
-                ),
+                # tpv_encoder_backbone_dict=dict(
+                #     type='Swin',
+                #     embed_dims=96, # 96
+                #     depths=[2, 2, 6, 2],
+                #     num_heads=[3, 6, 12, 24],
+                #     window_size=7,
+                #     mlp_ratio=4,
+                #     in_channels=128,
+                #     patch_size=4,
+                #     strides=[1,2,2,2],
+                #     frozen_stages=-1,
+                #     qkv_bias=True,
+                #     qk_scale=None,
+                #     drop_rate=0.,
+                #     attn_drop_rate=0.,
+                #     drop_path_rate=0.2,
+                #     patch_norm=True,
+                #     out_indices=[1,2,3],
+                #     with_cp=False,
+                #     convert_weights=True,
+                #     init_cfg=dict(
+                #         type='Pretrained',
+                #         checkpoint=CONF.LATENTNET.V6_swin_pretrain),
+                #         ),
+                # tpv_encoder_neck=dict(
+                #     type='GeneralizedLSSFPN',
+                #     in_channels=[192, 384, 768],
+                #     out_channels=_dim_,
+                #     start_level=0,
+                #     num_outs=3,
+                #     norm_cfg=dict(
+                #         type='BN2d',
+                #         requires_grad=True,
+                #         track_running_stats=False),
+                #     act_cfg=dict(
+                #         type='ReLU',
+                #         inplace=True),
+                #     upsample_cfg=dict(
+                #         mode='bilinear',
+                #         align_corners=False),
+                # ),
             ),    
             
-            voxel_backbone_dict=dict(
-                type='LocalAggregator',
-                local_encoder_backbone=dict(
-                    type='CustomResNet3D',
-                    numC_input=128,
-                    num_layer=[2, 2, 2],
-                    num_channels=[128, 128, 128],
-                    stride=[1, 2, 2]),
-                local_encoder_neck=dict(
-                    type='GeneralizedLSSFPN',
-                    in_channels=[128, 128, 128],
-                    out_channels=_dim_,
-                    start_level=0,
-                    num_outs=3,
-                    norm_cfg=dict(
-                        type='GN', 
-                        num_groups=32,
-                        requires_grad=True),
-                    conv_cfg=dict(type='Conv3d'),
-                    act_cfg=dict(
-                        type='ReLU',
-                        inplace=True),
-                    upsample_cfg=dict(
-                        mode='trilinear',
-                        align_corners=False)
-                ),
-            ),
+
+            # voxel_backbone_dict=dict(
+            #     type='LocalAggregator',
+            #     local_encoder_backbone=dict(
+            #         type='CustomResNet3D',
+            #         numC_input=128,
+            #         num_layer=[2, 2, 2],
+            #         num_channels=[128, 128, 128],
+            #         stride=[1, 2, 2]),
+            #     local_encoder_neck=dict(
+            #         type='GeneralizedLSSFPN',
+            #         in_channels=[128, 128, 128],
+            #         out_channels=_dim_,
+            #         start_level=0,
+            #         num_outs=3,
+            #         norm_cfg=dict(
+            #             type='GN', 
+            #             num_groups=32,
+            #             requires_grad=True),
+            #         conv_cfg=dict(type='Conv3d'),
+            #         act_cfg=dict(
+            #             type='ReLU',
+            #             inplace=True),
+            #         upsample_cfg=dict(
+            #             mode='trilinear',
+            #             align_corners=False)
+            #     ),
+            # ),
+
         ),
 
        CE_ssc_loss=True,

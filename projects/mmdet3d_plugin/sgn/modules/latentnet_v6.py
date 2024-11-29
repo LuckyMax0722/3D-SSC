@@ -27,11 +27,15 @@ class LatentNet(BaseModule):
                      ):
             super().__init__()
             self.spatial_shape = spatial_shape
+            self.embed_dims = embed_dims
+            self.voxel_backbone_dict = voxel_backbone_dict
             
             # 1. Branch 
             self.target_backbone = builder.build_backbone(target_backbone_dict)
             self.tpv_backbone = builder.build_backbone(tpv_backbone_dict)
-            self.voxel_backbone = builder.build_backbone(voxel_backbone_dict)
+            
+            if voxel_backbone_dict:
+                self.voxel_backbone = builder.build_backbone(voxel_backbone_dict)
             
             self.combine_coeff = nn.Sequential(
                 nn.Conv3d(embed_dims, 4, kernel_size=1, bias=False),
@@ -81,7 +85,18 @@ class LatentNet(BaseModule):
 
             return input_tensor
             
+        def process_dim(self, idx, input_tensor):
+            input_tensor = input_tensor.permute(1, 0)
+
+            if idx == 0:
+                input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[1]).unsqueeze(-1)
+            elif idx == 1:
+                input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[1], self.spatial_shape[2]).unsqueeze(1)
+            elif idx == 2:
+                input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[2]).unsqueeze(2)
             
+            return input_tensor.unsqueeze(0)
+         
         def get_processed_feats(self, x3d, target):
             '''
             input:
@@ -125,14 +140,37 @@ class LatentNet(BaseModule):
                     
                     z_noise_post = self.reparametrize(mu_post, logvar_post)
                     z_noises_post.append(z_noise_post)
-
+                    
                     kl_loss = self.kl_divergence(dist_post, dist_prior)
                     latent_losses.append(torch.mean(kl_loss))
-    
-                latent_loss = torch.mean(torch.stack(latent_losses))
+
+                # [torch.Size([16384, 128]), torch.Size([2048, 128]), torch.Size([2048, 128])]
+                z_noises_post = [self.process_dim(i, x) for i, x in enumerate(z_noises_post)]
+                # [torch.Size([1, 128, 128, 128, 1]), torch.Size([1, 128, 1, 128, 16]), torch.Size([1, 128, 128, 1, 16])]
                 
-                print("Latent Loss:", latent_loss.item())
-                print("Reparameterized z_noise_post shapes:", [z.shape for z in z_noises_post])
+                latent_loss = torch.mean(torch.stack(latent_losses))
+            
+                return latent_loss, z_noises_post
+            
+            else:
+                processed_x3d = [self.process_feats(tensor) for tensor in x3d]
+
+                prior_feats = [self.dist_prior(x) for x in processed_x3d]
+                # [[mu, logvar, dist], [mu, logvar, dist], [mu, logvar, dist]]
+                
+                z_noises_prior = []
+
+                for prior in prior_feats:
+                    mu_prior, logvar_prior, dist_prior = prior
+                    
+                    z_noise_prior = self.reparametrize(mu_prior, logvar_prior)
+                    z_noises_prior.append(z_noise_prior)
+
+                # [torch.Size([16384, 128]), torch.Size([2048, 128]), torch.Size([2048, 128])]
+                z_noises_prior = [self.process_dim(i, x) for i, x in enumerate(z_noises_prior)]
+                # [torch.Size([1, 128, 128, 128, 1]), torch.Size([1, 128, 1, 128, 16]), torch.Size([1, 128, 128, 1, 16])]
+                   
+                return z_noises_prior
 
         def forward_train(self, x3d, target):
             '''
@@ -154,7 +192,7 @@ class LatentNet(BaseModule):
             
             tpv_global_feats = self.tpv_backbone(x3d)
             '''
-            voxel_global_feats:
+            tpv_global_feats:
                 output: list -->
                 [
                     torch.Size([1, 128, 128, 128])
@@ -162,32 +200,92 @@ class LatentNet(BaseModule):
                     torch.Size([1, 128, 128, 16])
                 ]
             '''
+            # KL Part
+            latent_loss, z = self.get_processed_feats(tpv_global_feats, target_feats)
             
-            self.get_processed_feats(tpv_global_feats, target_feats)
+            '''
+            z:
+                output: list -->
+                [
+                    torch.Size([1, 128, 128, 128, 1])
+                    torch.Size([1, 128, 1, 128, 16])
+                    torch.Size([1, 128, 128, 1, 16])
+                ]
+            '''
             
-            voxel_local_feats = self.voxel_backbone(x3d)
+            if self.voxel_backbone_dict:
+                voxel_local_feats = self.voxel_backbone(x3d)
+            else:
+                voxel_local_feats = x3d
             '''
             voxel_local_feats:
                 torch.Size([1, 128, 128, 128, 16])
             '''
 
-            
-            # KL Part
-            
-            
-            
-            
+ 
             weights = self.combine_coeff(voxel_local_feats)
 
-            out_feats = voxel_local_feats * weights[:, 0:1, ...] + tpv_global_feats[0] * weights[:, 1:2, ...] + \
-                tpv_global_feats[1] * weights[:, 2:3, ...] + tpv_global_feats[2] * weights[:, 3:4, ...]
+            out_feats = voxel_local_feats * weights[:, 0:1, ...] + z[0] * weights[:, 1:2, ...] + \
+                z[1] * weights[:, 2:3, ...] + z[2] * weights[:, 3:4, ...]
             '''
             out_feats:
                 torch.Size([1, 128, 128, 128, 16])
             '''
             
             
-            print(out_feats.size())
+            return latent_loss, out_feats
+        
+        def forward_test(self, x3d, target):
+            '''
+            input:
+                target: None
+                x3d: torch.Size([1, 128, 128, 128, 16])
+            '''   
+            
+            tpv_global_feats = self.tpv_backbone(x3d)
+            '''
+            tpv_global_feats:
+                output: list -->
+                [
+                    torch.Size([1, 128, 128, 128])
+                    torch.Size([1, 128, 128, 16])
+                    torch.Size([1, 128, 128, 16])
+                ]
+            '''
+            # KL Part
+            z = self.get_processed_feats(tpv_global_feats, None)
+            
+            '''
+            z:
+                output: list -->
+                [
+                    torch.Size([1, 128, 128, 128, 1])
+                    torch.Size([1, 128, 1, 128, 16])
+                    torch.Size([1, 128, 128, 1, 16])
+                ]
+            '''
+            
+            if self.voxel_backbone_dict:
+                voxel_local_feats = self.voxel_backbone(x3d)
+            else:
+                voxel_local_feats = x3d
+            '''
+            voxel_local_feats:
+                torch.Size([1, 128, 128, 128, 16])
+            '''
+
+ 
+            weights = self.combine_coeff(voxel_local_feats)
+
+            out_feats = voxel_local_feats * weights[:, 0:1, ...] + z[0] * weights[:, 1:2, ...] + \
+                z[1] * weights[:, 2:3, ...] + z[2] * weights[:, 3:4, ...]
+            '''
+            out_feats:
+                torch.Size([1, 128, 128, 128, 16])
+            '''
+            
+            
+            return out_feats
             
 
 
