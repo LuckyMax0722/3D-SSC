@@ -35,6 +35,7 @@ class SGNHeadOne(nn.Module):
         embed_dims,
         scale_2d_list,
         pts_header_dict,
+        latent_header_dict=None,
         depth=3,
         CE_ssc_loss=True,
         geo_scal_loss=True,
@@ -69,7 +70,10 @@ class SGNHeadOne(nn.Module):
         elif CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1 or CONF.LATENTNET.USE_V5_2:
             from ..modules.latentnet_v5 import LatentNet
             self.latent = LatentNet()
-            
+        elif CONF.LATENTNET.USE_V6:
+            self.latent = builder.build_head(latent_header_dict)
+
+               
         self.flosp = FLoSP(scale_2d_list)
         
         if CONF.UNCERTAINTY.USE_V1:
@@ -206,6 +210,10 @@ class SGNHeadOne(nn.Module):
             
             recons_logit = recons_logit[:, :20, :, :, :]
 
+        if CONF.LATENTNET.USE_V6:
+            self.latent.forward_train(x3d, target)
+            
+        return
         #import subprocess
         #subprocess.run(['nvidia-smi'], check=True)
          

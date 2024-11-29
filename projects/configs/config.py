@@ -67,6 +67,9 @@ CONF.LATENTNET.V5_1_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/output/outp
 
 CONF.LATENTNET.LATENT_DIM = 128
 
+CONF.LATENTNET.USE_V6 = True
+CONF.LATENTNET.V6_swin_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/ckpt/swin_tiny_patch4_window7_224.pth'
+
 # TODO: activate or deactivate Image+Depth part
 CONF.FUSION = EasyDict()
 CONF.FUSION.USE_V1 = False
@@ -84,7 +87,7 @@ CONF.TRANSFORMER = EasyDict()
 CONF.TRANSFORMER.DIM = 128
 CONF.TRANSFORMER.H = 24
 CONF.TRANSFORMER.W = 77
-CONF.TRANSFORMER.TCA = True  # TemporalCrossAttention
+CONF.TRANSFORMER.TCA = False  # TemporalCrossAttention
 
 # TODO: activate or deactivate Uncertainty part
 CONF.UNCERTAINTY = EasyDict()
@@ -92,7 +95,7 @@ CONF.UNCERTAINTY.USE_V1 = False
 
 # TODO: activate or deactivate TPV
 CONF.TPV = EasyDict()
-CONF.TPV.USE_V1 = True
+CONF.TPV.USE_V1 = False
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()

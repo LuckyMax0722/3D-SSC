@@ -6,7 +6,7 @@
 from __future__ import division
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "7"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import argparse
 import copy
@@ -110,8 +110,13 @@ def main():
     
     args = parse_args()
 
-    #args.config = CONF.PATH.SGN_CONFIG
-    args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/tpv/tpv.py'
+    if CONF.TPV.USE_V1:
+        args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/tpv/tpv.py'
+    elif CONF.LATENTNET.USE_V6:
+        args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/sgn/sgn-T-one-stage-guidance-latent-v6.py'
+    else:
+        args.config = CONF.PATH.SGN_CONFIG
+    
     #args.work_dir = CONF.PATH.OUTPUT
     args.work_dir = '/u/home/caoh/projects/MA_Jiachen/SGN/a_tmp'
     #args.resume_from = CONF.PATH.CHECKPOINT_SGN
