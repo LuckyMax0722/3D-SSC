@@ -160,7 +160,6 @@ class SDB(nn.Module):
                 nn.Conv3d(128, out_channel, kernel_size=3, padding=1),  # torch.Size([1, 64, 128, 128, 16])
                 nn.ReLU(),
             )
-
         else:
             self.conv_in = nn.Conv3d(channel, out_channel, kernel_size=3, padding=1)  # torch.Size([1, 64, 128, 128, 16])
             

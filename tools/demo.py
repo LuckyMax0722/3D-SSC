@@ -6,7 +6,7 @@
 from __future__ import division
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 import argparse
 import copy
@@ -112,10 +112,11 @@ def main():
 
     if CONF.TPV.USE_V1:
         args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/tpv/tpv.py'
-    elif CONF.LATENTNET.USE_V6:
+    elif CONF.LATENTNET.USE_V6 or CONF.LATENTNET.USE_V6_1:
         args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/sgn/sgn-T-one-stage-guidance-latent-v6.py'
     else:
         args.config = CONF.PATH.SGN_CONFIG
+
     
     #args.work_dir = CONF.PATH.OUTPUT
     args.work_dir = '/u/home/caoh/projects/MA_Jiachen/SGN/a_tmp'
@@ -241,7 +242,11 @@ def main():
         train_cfg=cfg.get('train_cfg'),
         test_cfg=cfg.get('test_cfg'))
     model.init_weights()
-
+    
+    #model.cuda(0)
+    #model.pts_bbox_head.latent.cuda(1)
+    
+    
     logger.info(f'Model:\n{model}')
     logger.info('Model parameters: %.2fM' % (sum(p.numel() for p in model.parameters())/1000000.0))
     datasets = [build_dataset(cfg.data.train)]

@@ -70,10 +70,9 @@ class SGNHeadOne(nn.Module):
         elif CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1 or CONF.LATENTNET.USE_V5_2:
             from ..modules.latentnet_v5 import LatentNet
             self.latent = LatentNet()
-        elif CONF.LATENTNET.USE_V6:
+        elif CONF.LATENTNET.USE_V6 or CONF.LATENTNET.USE_V6_1:
             self.latent = builder.build_head(latent_header_dict)
-
-               
+            
         self.flosp = FLoSP(scale_2d_list)
         
         if CONF.UNCERTAINTY.USE_V1:
@@ -101,7 +100,6 @@ class SGNHeadOne(nn.Module):
             nn.LeakyReLU(),
             nn.Linear(self.embed_dims//2, self.embed_dims)
         )
-
         occ_channel = 8 if pts_header_dict.get('guidance', False) else 0
     
         self.occ_header = nn.Sequential(
@@ -136,9 +134,9 @@ class SGNHeadOne(nn.Module):
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
             self.ssc_header = HeaderV5(self.n_classes, feature=self.embed_dims//2)     
             
-        elif CONF.LATENTNET.USE_V6:   
-            self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=48, depth=depth)
-            self.ssc_header = Header(self.n_classes, feature=48)   
+        elif CONF.LATENTNET.USE_V6:
+            self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=40, depth=depth)
+            self.ssc_header = Header(self.n_classes, feature=40)   
             
         else:
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
@@ -185,9 +183,11 @@ class SGNHeadOne(nn.Module):
                 out['lattent_loss'], x3d = self.latent.forward_train(x3d, target)
             elif img_metas[0]['mode'] == 'test':
                 x3d = self.latent.forward_test(x3d, None)
+
         else:       
             x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
-        
+    
+    
         if CONF.LATENTNET.USE_V4:
             if img_metas[0]['mode'] == 'train':
                 x3d, lattent_loss = self.latent.forward_train(x3d, target)
@@ -287,6 +287,12 @@ class SGNHeadOne(nn.Module):
             vox_feats_diff = vox_feats_diff.permute(0, 1, 4, 3, 2)  # torch.Size([1, 128, 256, 256, 32])
 
         vox_feats_diff = self.sdb(vox_feats_diff) # 1, C,H,W,Z torch.Size([1, 64, 128, 128, 16])  /  torch.Size([1, 32, 256, 256, 32])
+    
+        if CONF.LATENTNET.USE_V6_1:
+            if img_metas[0]['mode'] == 'train':
+                out['lattent_loss'], vox_feats_diff = self.latent.forward_train(vox_feats_diff, target)
+            elif img_metas[0]['mode'] == 'test':
+                vox_feats_diff = self.latent.forward_test(vox_feats_diff, None)
         
         if CONF.LATENTNET.USE_V5 or CONF.LATENTNET.USE_V5_1 or CONF.LATENTNET.USE_V5_2:
             ssc_dict = self.ssc_header(vox_feats_diff, recons_logit)
@@ -298,6 +304,10 @@ class SGNHeadOne(nn.Module):
             
         out.update(ssc_dict)
         
+        # import subprocess
+        # result = subprocess.run(["nvidia-smi"])
+        # print(result)
+
         return out
 
     def step(self, out_dict, target, img_metas, step_type):
@@ -360,7 +370,6 @@ class SGNHeadOne(nn.Module):
                 loss_dict['loss_latent'] = out_dict['lattent_loss']
             elif CONF.LATENTNET.USE_V6:
                 loss_dict['loss_latent'] = out_dict['lattent_loss']
-                
             return loss_dict
 
         elif step_type== "val" or "test":

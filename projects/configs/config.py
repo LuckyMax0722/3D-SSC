@@ -67,9 +67,17 @@ CONF.LATENTNET.V5_1_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/output/outp
 
 CONF.LATENTNET.LATENT_DIM = 128
 
-CONF.LATENTNET.USE_V6 = True
+CONF.LATENTNET.USE_V6 = False
 CONF.LATENTNET.V6_swin_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/ckpt/swin_tiny_patch4_window7_224.pth'
+CONF.LATENTNET.USE_V6_1 = True
 
+if CONF.LATENTNET.USE_V6:
+    CONF.LATENTNET.V6_geo_feat_dim = 128
+    CONF.LATENTNET.V6_split = [8,8,8]
+elif CONF.LATENTNET.USE_V6_1:
+    CONF.LATENTNET.V6_geo_feat_dim = 64
+    CONF.LATENTNET.V6_split = [16,16,16]
+    
 # TODO: activate or deactivate Image+Depth part
 CONF.FUSION = EasyDict()
 CONF.FUSION.USE_V1 = False

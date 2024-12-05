@@ -39,7 +39,7 @@ class LatentNet(BaseModule):
             
             self.combine_coeff = nn.Sequential(
                 nn.Conv3d(embed_dims, 4, kernel_size=1, bias=False),
-                nn.Softmax(dim=1)
+                #nn.Softmax(dim=1)
             )
             
             # 2. KL
@@ -133,24 +133,32 @@ class LatentNet(BaseModule):
                 
                 latent_losses = []
                 z_noises_post = []
-
+                z_noises_prior = []
+                
                 for post, prior in zip(post_feats, prior_feats):
                     mu_post, logvar_post, dist_post = post
                     mu_prior, logvar_prior, dist_prior = prior
+                    
+                    z_noise_prior = self.reparametrize(mu_prior, logvar_prior)
+                    z_noises_prior.append(z_noise_prior)
                     
                     z_noise_post = self.reparametrize(mu_post, logvar_post)
                     z_noises_post.append(z_noise_post)
                     
                     kl_loss = self.kl_divergence(dist_post, dist_prior)
-                    latent_losses.append(torch.mean(kl_loss))
+                    latent_losses.append(torch.sum(kl_loss))
 
                 # [torch.Size([16384, 128]), torch.Size([2048, 128]), torch.Size([2048, 128])]
                 z_noises_post = [self.process_dim(i, x) for i, x in enumerate(z_noises_post)]
                 # [torch.Size([1, 128, 128, 128, 1]), torch.Size([1, 128, 1, 128, 16]), torch.Size([1, 128, 128, 1, 16])]
                 
-                latent_loss = torch.mean(torch.stack(latent_losses))
+                # [torch.Size([16384, 128]), torch.Size([2048, 128]), torch.Size([2048, 128])]
+                z_noises_prior = [self.process_dim(i, x) for i, x in enumerate(z_noises_prior)]
+                # [torch.Size([1, 128, 128, 128, 1]), torch.Size([1, 128, 1, 128, 16]), torch.Size([1, 128, 128, 1, 16])]
+                
+                latent_loss = torch.sum(torch.stack(latent_losses))
             
-                return latent_loss, z_noises_post
+                return latent_loss, z_noises_prior
             
             else:
                 processed_x3d = [self.process_feats(tensor) for tensor in x3d]
@@ -285,8 +293,4 @@ class LatentNet(BaseModule):
             '''
             
             
-            return out_feats
-            
-
-
-            
+            return out_feats            

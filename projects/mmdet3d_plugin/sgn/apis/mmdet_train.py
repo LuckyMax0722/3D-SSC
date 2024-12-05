@@ -75,7 +75,9 @@ def custom_train_detector(model,
         # torch.nn.parallel.DistributedDataParallel
         model = MMDistributedDataParallel(
             model.cuda(),
+            #model,
             device_ids=[torch.cuda.current_device()],
+            #device_ids=[0, 1],
             broadcast_buffers=False,
             find_unused_parameters=find_unused_parameters)
         if eval_model is not None:
@@ -84,7 +86,7 @@ def custom_train_detector(model,
                 device_ids=[torch.cuda.current_device()],
                 broadcast_buffers=False,
                 find_unused_parameters=find_unused_parameters)
-    else:
+    else:       
         model = MMDataParallel(
             model.cuda(cfg.gpu_ids[0]), device_ids=cfg.gpu_ids)
         if eval_model is not None:
