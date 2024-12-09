@@ -368,7 +368,7 @@ class SGNHeadOne(nn.Module):
                 loss_dict['loss_latent'] = out_dict['lattent_loss']
             elif CONF.LATENTNET.USE_V5_1:
                 loss_dict['loss_latent'] = out_dict['lattent_loss']
-            elif CONF.LATENTNET.USE_V6:
+            elif CONF.LATENTNET.USE_V6 or CONF.LATENTNET.USE_V6_1:
                 loss_dict['loss_latent'] = out_dict['lattent_loss']
             return loss_dict
 
