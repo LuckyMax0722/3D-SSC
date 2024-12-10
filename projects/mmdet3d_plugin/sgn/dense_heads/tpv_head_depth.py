@@ -14,7 +14,7 @@ from ..modules.tpv.image_cross_attention import TPVMSDeformableAttention3D
 
 
 @HEADS.register_module()
-class TPVFormerHead(BaseModule):
+class TPVFormerHead_Depth(BaseModule):
 
     def __init__(self,
                  positional_encoding=None,
@@ -77,8 +77,14 @@ class TPVFormerHead(BaseModule):
             mlvl_feats (tuple[Tensor]): Features from the upstream
                 network, each is a 5D-tensor with shape
                 (B, N, C, H, W).
+        
+        Input:
+            mlvl_feats: list [...]
+                torch.Size([1, 5, 256, 47, 153])
+                torch.Size([1, 5, 256, 24, 77])
+                torch.Size([1, 5, 256, 12, 39])
+                torch.Size([1, 5, 256, 6, 20])
         """
-
         bs = mlvl_feats[0].shape[0]
         dtype = mlvl_feats[0].dtype
         device = mlvl_feats[0].device
@@ -107,11 +113,22 @@ class TPVFormerHead(BaseModule):
             feat_flatten.append(feat)
 
         feat_flatten = torch.cat(feat_flatten, 2) # num_cam, bs, hw++, c
+
         spatial_shapes = torch.as_tensor(
             spatial_shapes, dtype=torch.long, device=device)
         level_start_index = torch.cat((spatial_shapes.new_zeros(
             (1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
         feat_flatten = feat_flatten.permute(0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims)
+        
+        # depth
+        depth = img_metas[0][0]['depth_tensor'] # torch.Size([370, 1220, 256])
+        h, w, _ = depth.size()
+        depth = depth.unsqueeze(0) # torch.Size([370, 1220, 256]) --> torch.Size([1, 370, 1220, 256])
+        depth = depth.view(1, -1, self.embed_dims)  # Flatten depth map for projection (shape: [1, H*W, 256])  torch.Size([1, 451400, 256])
+        depth = depth.unsqueeze(2).to(device)  # [1, H*W, 1, 256]
+        
+        depth_spatial_shapes = torch.as_tensor([[h, w]], dtype=torch.long, device=device)
+        
         tpv_embed = self.encoder(
             [tpv_queries_hw, tpv_queries_zh, tpv_queries_wz],
             feat_flatten,
@@ -123,15 +140,8 @@ class TPVFormerHead(BaseModule):
             spatial_shapes=spatial_shapes,
             level_start_index=level_start_index,
             img_metas=img_metas,
+            depth=depth,
+            depth_spatial_shapes=depth_spatial_shapes,
         )
         
-        # Origional 
-        # return tpv_embed
-        
-        tpv_hw, tpv_zh, tpv_wz = tpv_embed[0], tpv_embed[1], tpv_embed[2]
-        bs, _, c = tpv_hw.shape
-        tpv_hw = tpv_hw.permute(0, 2, 1).reshape(bs, c, self.tpv_h, self.tpv_w)
-        tpv_zh = tpv_zh.permute(0, 2, 1).reshape(bs, c, self.tpv_z, self.tpv_h)
-        tpv_wz = tpv_wz.permute(0, 2, 1).reshape(bs, c, self.tpv_w, self.tpv_z)
-        
-        return [tpv_hw, tpv_zh, tpv_wz]
+        return tpv_embed

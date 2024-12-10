@@ -50,7 +50,8 @@ class SGNHeadOne(nn.Module):
         self.real_w = 51.2
         self.real_h = 51.2
         self.embed_dims = embed_dims
-            
+        self.nvidia_smi = True
+        
         if kwargs.get('dataset', 'semantickitti') == 'semantickitti':
             self.class_names =  [ "empty", "car", "bicycle", "motorcycle", "truck", "other-vehicle", "person", "bicyclist", "motorcyclist", "road", 
                                 "parking", "sidewalk", "other-ground", "building", "fence", "vegetation", "trunk", "terrain", "pole", "traffic-sign",]
@@ -164,6 +165,11 @@ class SGNHeadOne(nn.Module):
         """
         out = {}
 
+        if self.nvidia_smi:
+            import subprocess
+            result = subprocess.run(["nvidia-smi"])
+            print(result)
+        
         if CONF.LATENTNET.USE_V1:
             mlvl_feats[0] = self.decoder.forward_image(mlvl_feats, img_metas, target)
         
@@ -270,6 +276,11 @@ class SGNHeadOne(nn.Module):
         out["sem_logit"] = sem  # torch.Size([*227955, 20])
         out["coords"] = seed_coords
 
+        if self.nvidia_smi:
+            import subprocess
+            result = subprocess.run(["nvidia-smi"])
+            print(result)
+        
         # Complete voxel features
         vox_feats = torch.empty((self.bev_h, self.bev_w, self.bev_z, self.embed_dims), device=x3d.device)  # torch.Size([128, 128, 16, 128])
         vox_feats_flatten = vox_feats.reshape(-1, self.embed_dims)
@@ -304,9 +315,10 @@ class SGNHeadOne(nn.Module):
             
         out.update(ssc_dict)
         
-        # import subprocess
-        # result = subprocess.run(["nvidia-smi"])
-        # print(result)
+        if self.nvidia_smi:
+            import subprocess
+            result = subprocess.run(["nvidia-smi"])
+            print(result)
 
         return out
 

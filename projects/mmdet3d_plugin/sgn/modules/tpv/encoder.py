@@ -92,10 +92,10 @@ class TPVFormerEncoder(TransformerLayerSequence):
     # This function must use fp32!!!
     @force_fp32(apply_to=('reference_points', 'img_metas'))
     def point_sampling(self, reference_points, pc_range, img_metas):
-
+        
         lidar2img = []
         for img_meta in img_metas:
-            lidar2img.append(img_meta[0]['lidar2img'][0]) # already assign to 1
+            lidar2img.append(img_meta['lidar2img'][-1]) # current frame
             #lidar2img.append(img_meta['lidar2img'])
         lidar2img = np.asarray(lidar2img)
         lidar2img = reference_points.new_tensor(lidar2img)  # (B, N, 4, 4)
@@ -132,8 +132,9 @@ class TPVFormerEncoder(TransformerLayerSequence):
             reference_points_cam[..., 2:3], torch.ones_like(reference_points_cam[..., 2:3]) * eps)
 
         for img_meta in img_metas:
-            reference_points_cam[..., 0] /= img_meta[0]['img_shape'][0][1]
-            reference_points_cam[..., 1] /= img_meta[0]['img_shape'][0][0]
+            # current frame
+            reference_points_cam[..., 0] /= img_meta['img_shape'][-1][1]
+            reference_points_cam[..., 1] /= img_meta['img_shape'][-1][0]
 
         tpv_mask = (tpv_mask & (reference_points_cam[..., 1:2] > 0.0)
                     & (reference_points_cam[..., 1:2] < 1.0)

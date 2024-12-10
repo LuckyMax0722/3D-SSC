@@ -67,7 +67,7 @@ CONF.LATENTNET.V5_1_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/output/outp
 
 CONF.LATENTNET.LATENT_DIM = 128
 
-CONF.LATENTNET.USE_V6 = True
+CONF.LATENTNET.USE_V6 = False
 CONF.LATENTNET.V6_swin_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/ckpt/swin_tiny_patch4_window7_224.pth'
 CONF.LATENTNET.USE_V6_1 = False
 
