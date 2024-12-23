@@ -17,7 +17,7 @@ class Header(nn.Module):
         self.feature = feature
         self.class_num = class_num
         self.mlp_head = nn.Sequential(
-            nn.LayerNorm(self.feature),
+            #nn.LayerNorm(self.feature),
             nn.Linear(self.feature, self.class_num),
         )
 

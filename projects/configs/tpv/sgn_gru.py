@@ -41,7 +41,7 @@ num_points = [8, 64, 64]
 nbr_class = 20
 
 model = dict(
-    type='SGNTPV',
+    type='SGNGRU',
     use_grid_mask=True,
     pretrained=dict(img=CONF.PATH.CHECKPOINT_RESNET50),
     img_backbone=dict(
@@ -68,86 +68,15 @@ model = dict(
         num_outs=4,
         relu_before_extra_convs=True
     ),
-    tpv_head=dict(
-        type='TPVFormerHead',
-        tpv_h=tpv_h_,
-        tpv_w=tpv_w_,
-        tpv_z=tpv_z_,
-        pc_range=point_cloud_range,
-        num_feature_levels=_num_levels_,
-        num_cams=_num_cams_,
-        embed_dims=_dim_,
-        positional_encoding=dict(
-            type='LearnedPositionalEncoding',
-            num_feats=_pos_dim_,
-            row_num_embed=tpv_h_,
-            col_num_embed=tpv_w_),
-        encoder=dict(
-            type='TPVFormerEncoder',
-            tpv_h=tpv_h_,
-            tpv_w=tpv_w_,
-            tpv_z=tpv_z_,
-            num_layers=2,
-            pc_range=point_cloud_range,
-            num_points_in_pillar=num_points_in_pillar,
-            return_intermediate=False,
-            transformerlayers=dict(
-                type='TPVFormerLayer',
-                attn_cfgs=[
-                    dict(
-                        type='TPVCrossViewHybridAttention',
-                        embed_dims=_dim_,
-                        num_levels=1),
-                    dict(
-                        type='TPVImageCrossAttention',
-                        num_cams=_num_cams_,
-                        pc_range=point_cloud_range,
-                        embed_dims=_dim_,
-                        tpv_h=tpv_h_,
-                        tpv_w=tpv_w_,
-                        tpv_z=tpv_z_,
-                        deformable_attention=dict(
-                            type='TPVMSDeformableAttention3D',
-                            embed_dims=_dim_,
-                            num_points=num_points,
-                            num_z_anchors=num_points_in_pillar,
-                            num_levels=_num_levels_,
-                            floor_sampling_offset=False,
-                            tpv_h=tpv_h_,
-                            tpv_w=tpv_w_,
-                            tpv_z=tpv_z_,
-                        ),
-                    )
-                ],
-                feedforward_channels=_ffn_dim_,
-                ffn_dropout=0.1,
-                operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
-                                 'ffn', 'norm')))
-        ),
-
-    target_head=dict(
-        type='AutoEncoderGroupSkipV2',
-        num_class=20,
-        geo_feat_channels=_dim_,
-        padding_mode='replicate',
-        z_down=True,
-        voxel_fea=False,
-        pos=True,
-        feat_channel_up=64,
-        triplane=True,
-        mlp_hidden_channels=128,
-        mlp_hidden_layers=3,
-        dataset='kitti',
+    gru_head=dict(
+        type='TemporalAwareHead',
+        input_size_list=[[47, 153], [24, 77], [12, 39], [6, 20]],
+        input_dim=128, 
+        hidden_dim=128, 
+        kernel_size=(3,3), 
+        num_layers=1, 
+        batch_first=True
     ),
-    
-    latent_head=dict(
-        type='LatentHead',
-        embed_dims=_dim_,
-        spatial_shape=[128,128,16],
-        use_post=False,
-        use_tpv_aggregator=True
-    ),
-    
     pts_bbox_head=dict(
        type='SGNHeadOneV2',
        bev_h=128,

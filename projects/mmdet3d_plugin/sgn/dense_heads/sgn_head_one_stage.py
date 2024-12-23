@@ -50,7 +50,7 @@ class SGNHeadOne(nn.Module):
         self.real_w = 51.2
         self.real_h = 51.2
         self.embed_dims = embed_dims
-        self.nvidia_smi = True
+        self.nvidia_smi = False
         
         if kwargs.get('dataset', 'semantickitti') == 'semantickitti':
             self.class_names =  [ "empty", "car", "bicycle", "motorcycle", "truck", "other-vehicle", "person", "bicyclist", "motorcyclist", "road", 
@@ -91,23 +91,32 @@ class SGNHeadOne(nn.Module):
             
         #self.bottleneck = nn.Conv3d(self.embed_dims, self.embed_dims, kernel_size=3, padding=1)
         
-        if not CONF.LATENTNET.USE_V6:
+        if not CONF.LATENTNET.USE_V6 or not CONF.TPV.USE_V2:
             self.bottleneck = nn.Conv3d(128, self.embed_dims, kernel_size=3, padding=1)
             
         self.sgb = SGB(sizes=[self.bev_h, self.bev_w, self.bev_z], channels=self.embed_dims)
+        
         self.mlp_prior = nn.Sequential(
             nn.Linear(self.embed_dims, self.embed_dims//2),
             nn.LayerNorm(self.embed_dims//2),
             nn.LeakyReLU(),
             nn.Linear(self.embed_dims//2, self.embed_dims)
         )
+        
         occ_channel = 8 if pts_header_dict.get('guidance', False) else 0
     
-        self.occ_header = nn.Sequential(
-            SDB(channel=self.embed_dims, out_channel=self.embed_dims//2, depth=1),
-            nn.Conv3d(self.embed_dims//2, 1, kernel_size=3, padding=1)
-        )
         
+        if CONF.TPV.USE_V2:
+            self.occ_header = nn.Sequential(
+                SDB(channel=self.embed_dims, out_channel=20, depth=1),
+                nn.Conv3d(20, 1, kernel_size=3, padding=1)
+            )
+        else:
+            self.occ_header = nn.Sequential(
+                SDB(channel=self.embed_dims, out_channel=self.embed_dims//2, depth=1),
+                nn.Conv3d(self.embed_dims//2, 1, kernel_size=3, padding=1)
+            )
+            
         self.sem_header = SparseHeader(self.n_classes, feature=self.embed_dims)
         
         self.pts_header = builder.build_head(pts_header_dict)
@@ -138,10 +147,21 @@ class SGNHeadOne(nn.Module):
         elif CONF.LATENTNET.USE_V6:
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=40, depth=depth)
             self.ssc_header = Header(self.n_classes, feature=40)   
+        
+        
+        elif CONF.TPV.USE_V2:
+            self.combine_coeff = nn.Sequential(
+                nn.Conv3d(self.embed_dims, 3, kernel_size=1, bias=False),
+                #nn.Softmax(dim=1)
+            )
+            
+            self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=40, depth=depth)
+            self.ssc_header = Header(self.n_classes, feature=40)
             
         else:
             self.sdb = SDB(channel=self.embed_dims+occ_channel, out_channel=self.embed_dims//2, depth=depth)
             self.ssc_header = Header(self.n_classes, feature=self.embed_dims//2)
+            
             
             
         self.CE_ssc_loss = CE_ssc_loss
@@ -190,7 +210,17 @@ class SGNHeadOne(nn.Module):
             elif img_metas[0]['mode'] == 'test':
                 x3d = self.latent.forward_test(x3d, None)
 
-        else:       
+        elif CONF.TPV.USE_V2:
+            weights = self.combine_coeff(x3d)
+            z = img_metas[0]['latent_feats']
+            
+            x3d = x3d + z[0] * weights[:, 0:1, ...] + z[1] * weights[:, 1:2, ...] + z[2] * weights[:, 2:3, ...]
+
+            '''
+            out_feats:
+                torch.Size([1, 128, 128, 128, 16])
+            '''
+        else:    
             x3d = self.bottleneck(x3d)  # torch.Size([1, 128, 128, 128, 16]) --> torch.Size([1, 128, 128, 128, 16])
     
     

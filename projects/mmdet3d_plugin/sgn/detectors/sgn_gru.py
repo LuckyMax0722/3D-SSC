@@ -5,7 +5,7 @@ from ..utils import GridMask
 from mmdet.models import builder
 
 @DETECTORS.register_module()
-class SGNTPV(MVXTwoStageDetector):
+class SGNGRU(MVXTwoStageDetector):
     def __init__(self,
                  use_grid_mask=False,
                  pts_voxel_layer=None,
@@ -23,27 +23,19 @@ class SGNTPV(MVXTwoStageDetector):
                  test_cfg=None,
                  pretrained=None,
                  occupancy=False,
-                 tpv_head=None,
-                 target_head=None,
-                 latent_head=None,
-                 tpv_aggregator=None,
+                 gru_head=None,
                  ):
 
-        super(SGNTPV,
+        super(SGNGRU,
               self).__init__(pts_voxel_layer, pts_voxel_encoder,
                              pts_middle_encoder, pts_fusion_layer,
                              img_backbone, pts_backbone, img_neck, pts_neck,
                              pts_bbox_head, img_roi_head, img_rpn_head,
                              train_cfg, test_cfg, pretrained)
         
-        if tpv_head:
-            self.tpv_head = builder.build_head(tpv_head)
-        if target_head:
-            self.target_head = builder.build_head(target_head)
-        if latent_head:
-            self.latent_head = builder.build_head(latent_head)
-
-               
+        if gru_head:
+            self.gru_head = builder.build_head(gru_head)
+     
         self.grid_mask = GridMask(
             True, True, rotate=1, offset=False, ratio=0.5, mode=1, prob=0.7)
         self.use_grid_mask = use_grid_mask
@@ -123,78 +115,6 @@ class SGNTPV(MVXTwoStageDetector):
         losses = self.pts_bbox_head.training_step(outs, target, img_metas)
         return losses
 
-    def forward_tpv_train(self,
-                          img_feats, 
-                          img_metas,
-                          target
-                          ):
-        """Forward function'
-        """
-        
-        # get current image
-        img_feats = [t[:, -1:, ...] for t in img_feats]
-
-        # get prior tpv
-        input_feats = self.tpv_head(img_feats, img_metas)
-        
-        '''
-        input_feats:
-            input_feats = [tpv_hw, tpv_zh, tpv_wz], where sizes are -->
-            [
-                torch.Size([1, 128, 128, 128])
-                torch.Size([1, 128, 128, 16])
-                torch.Size([1, 128, 128, 16])
-            ]
-        '''
-        
-        # get posterior tpv
-        target_feats = self.target_head(target.long())
-
-        '''
-        target_feats:
-            target_feats = [xy_feat, xz_feat, yz_feat], where sizes are -->
-            [
-                torch.Size([1, 128, 128, 128])
-                torch.Size([1, 128, 128, 16])
-                torch.Size([1, 128, 128, 16])
-            ]
-        '''
-        
-        # KL part
-        loss_dict = {}
-        
-        loss_dict['loss_latent'], img_metas[0]['latent_feats'] = self.latent_head.forward_train(input_feats, target_feats)
-
-
-        return loss_dict
-        
-    def forward_tpv_test(self,
-                          img_feats, 
-                          img_metas,
-                          target
-                          ):
-        """Forward function'
-        """
-        
-        # get current image
-        img_feats = [t[:, -1:, ...] for t in img_feats]
-
-        # get prior tpv
-        input_feats = self.tpv_head(img_feats, img_metas)
-        
-        '''
-        input_feats:
-            input_feats = [tpv_hw, tpv_zh, tpv_wz], where sizes are -->
-            [
-                torch.Size([1, 128, 128, 128])
-                torch.Size([1, 128, 128, 16])
-                torch.Size([1, 128, 128, 16])
-            ]
-        '''
-
-        # KL part
-        img_metas[0]['latent_feats'] = self.latent_head.forward_test(input_feats, None)
-        
       
     def forward(self, return_loss=True, **kwargs):
         """Calls either forward_train or forward_test depending on whether
@@ -239,15 +159,21 @@ class SGNTPV(MVXTwoStageDetector):
             img_feats = None
         else:
             img_feats = self.extract_feat(img=img) 
-            
-        losses = dict()
         
-        losses_tpv = self.forward_tpv_train(img_feats, img_metas, target)
-        losses.update(losses_tpv)
+        out = self.gru_head(img_feats)
+        '''
+        [
+            torch.Size([1, 128, 47, 153])
+            torch.Size([1, 128, 24, 77])
+            torch.Size([1, 128, 12, 39])
+            torch.Size([1, 128, 6, 20])
+        ]
+        '''
+        out = [out[1].unsqueeze(1)]
 
-        img_feats = [img_feats[1]]
+        losses = dict()
 
-        losses_pts = self.forward_pts_train(img_feats, img_metas, target)
+        losses_pts = self.forward_pts_train(out, img_metas, target)
         losses.update(losses_pts)
         return losses
 
@@ -279,12 +205,20 @@ class SGNTPV(MVXTwoStageDetector):
             img_feats = None
         else:
             img_feats = self.extract_feat(img=img)  
-            
-        self.forward_tpv_test(img_feats, img_metas, None)
         
-        img_feats = [img_feats[1]]
+        out = self.gru_head(img_feats)
+        '''
+        [
+            torch.Size([1, 128, 47, 153])
+            torch.Size([1, 128, 24, 77])
+            torch.Size([1, 128, 12, 39])
+            torch.Size([1, 128, 6, 20])
+        ]
+        '''
+        out = [out[1].unsqueeze(1)]
+
         
-        outs = self.pts_bbox_head(img_feats, img_metas, target)
+        outs = self.pts_bbox_head(out, img_metas, target)
         completion_results = self.pts_bbox_head.validation_step(outs, target, img_metas)
 
         return completion_results

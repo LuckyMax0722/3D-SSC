@@ -14,16 +14,21 @@ class LatentHead(BaseModule):
         def __init__(self,
                      embed_dims,
                      spatial_shape,
+                     use_post,
+                     use_tpv_aggregator
                      ):
             super().__init__()
             self.spatial_shape = spatial_shape
             self.embed_dims = embed_dims
-
-            self.combine_coeff = nn.Sequential(
-                nn.Conv3d(embed_dims, 4, kernel_size=1, bias=False),
-                #nn.Softmax(dim=1)
-            )
+            self.use_post = use_post
             
+            if use_tpv_aggregator:
+                self.version = 'w_tpv_agg'
+            else:
+                self.version = 'wo_tpv_agg'
+            
+            self.use_tpv_aggregator = use_tpv_aggregator
+              
             # 2. KL
             self.fc_post_1 = nn.Linear(embed_dims * 2, embed_dims)
             self.fc_post_2 = nn.Linear(embed_dims * 2, embed_dims)
@@ -67,15 +72,24 @@ class LatentHead(BaseModule):
 
             return input_tensor
             
-        def process_dim(self, idx, input_tensor):
+        def process_dim(self, idx, input_tensor, version):
             input_tensor = input_tensor.permute(1, 0)
 
-            if idx == 0:
-                input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[1]).unsqueeze(-1)
-            elif idx == 1:
-                input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[1], self.spatial_shape[2]).unsqueeze(1)
-            elif idx == 2:
-                input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[2]).unsqueeze(2)
+            if version == 'wo_tpv_agg':
+                if idx == 0:
+                    input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[1]).unsqueeze(-1)
+                elif idx == 1:
+                    input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[1], self.spatial_shape[2]).unsqueeze(1)
+                elif idx == 2:
+                    input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[2]).unsqueeze(2)
+            
+            elif version == 'w_tpv_agg':
+                if idx == 0:
+                    input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[1])
+                elif idx == 1:
+                    input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[1], self.spatial_shape[2])
+                elif idx == 2:
+                    input_tensor = input_tensor.view(self.embed_dims, self.spatial_shape[0], self.spatial_shape[2])
             
             return input_tensor.unsqueeze(0)
          
@@ -128,19 +142,22 @@ class LatentHead(BaseModule):
                     z_noises_post.append(z_noise_post)
                     
                     kl_loss = self.kl_divergence(dist_post, dist_prior)
-                    latent_losses.append(torch.sum(kl_loss))
+                    latent_losses.append(torch.mean(kl_loss))
 
                 # [torch.Size([16384, 128]), torch.Size([2048, 128]), torch.Size([2048, 128])]
-                z_noises_post = [self.process_dim(i, x) for i, x in enumerate(z_noises_post)]
+                z_noises_post = [self.process_dim(i, x, self.version) for i, x in enumerate(z_noises_post)]
                 # [torch.Size([1, 128, 128, 128, 1]), torch.Size([1, 128, 1, 128, 16]), torch.Size([1, 128, 128, 1, 16])]
                 
                 # [torch.Size([16384, 128]), torch.Size([2048, 128]), torch.Size([2048, 128])]
-                z_noises_prior = [self.process_dim(i, x) for i, x in enumerate(z_noises_prior)]
+                z_noises_prior = [self.process_dim(i, x, self.version) for i, x in enumerate(z_noises_prior)]
                 # [torch.Size([1, 128, 128, 128, 1]), torch.Size([1, 128, 1, 128, 16]), torch.Size([1, 128, 128, 1, 16])]
                 
-                latent_loss = torch.sum(torch.stack(latent_losses))
-            
-                return latent_loss, z_noises_prior
+                latent_loss = torch.mean(torch.stack(latent_losses))
+
+                if self.use_post:
+                    return latent_loss, z_noises_post
+                else:
+                    return latent_loss, z_noises_prior
             
             else:
                 processed_x3d = [self.process_feats(tensor) for tensor in x3d]
@@ -157,11 +174,29 @@ class LatentHead(BaseModule):
                     z_noises_prior.append(z_noise_prior)
 
                 # [torch.Size([16384, 128]), torch.Size([2048, 128]), torch.Size([2048, 128])]
-                z_noises_prior = [self.process_dim(i, x) for i, x in enumerate(z_noises_prior)]
+                z_noises_prior = [self.process_dim(i, x, self.version) for i, x in enumerate(z_noises_prior)]
                 # [torch.Size([1, 128, 128, 128, 1]), torch.Size([1, 128, 1, 128, 16]), torch.Size([1, 128, 128, 1, 16])]
                    
                 return z_noises_prior
 
+        def get_tpv_aggregator(self, tpv_list):
+            """
+            tpv_list[0]: bs, c, h*w
+            tpv_list[1]: bs, c, z*h
+            tpv_list[2]: bs, c, w*z
+            """
+            tpv_h, tpv_w, tpv_z = self.spatial_shape[0], self.spatial_shape[1], self.spatial_shape[2]
+            tpv_hw, tpv_zh, tpv_wz = tpv_list[0], tpv_list[1], tpv_list[2]
+
+            tpv_hw = tpv_hw.unsqueeze(-1).permute(0, 1, 3, 2, 4).expand(-1, -1, -1, -1, tpv_z)
+            tpv_zh = tpv_zh.unsqueeze(-1).permute(0, 1, 4, 2, 3).expand(-1, -1, tpv_w, -1, -1)
+            tpv_wz = tpv_wz.unsqueeze(-1).permute(0, 1, 2, 4, 3).expand(-1, -1, -1, tpv_h, -1)
+        
+            fused = tpv_hw + tpv_zh + tpv_wz  # [bs, c, w, h, z]
+            fused = fused.permute(0, 1, 3, 2, 4)
+
+            return fused
+        
         def forward_train(self, input_feats, target_feats):
             '''
             input:
@@ -187,17 +222,32 @@ class LatentHead(BaseModule):
             # KL Part
             latent_loss, z = self.get_processed_feats(input_feats, target_feats)
             
-            '''
-            z:
-                output: list -->
-                [
-                    torch.Size([1, 128, 128, 128, 1])
-                    torch.Size([1, 128, 1, 128, 16])
-                    torch.Size([1, 128, 128, 1, 16])
-                ]
-            '''
+            if self.use_tpv_aggregator:
+                '''
+                z:
+                    output: list -->
+                    [
+                        torch.Size([1, 128, 128, 128])
+                        torch.Size([1, 128, 128, 16])
+                        torch.Size([1, 128, 128, 16])
+                    ]
+                '''
+                z = self.get_tpv_aggregator(z)
+                
+                return latent_loss, z
             
-            return latent_loss, z
+            else:
+                '''
+                z:
+                    output: list -->
+                    [
+                        torch.Size([1, 128, 128, 128, 1])
+                        torch.Size([1, 128, 1, 128, 16])
+                        torch.Size([1, 128, 128, 1, 16])
+                    ]
+                '''
+                
+                return latent_loss, z
         
         def forward_test(self, input_feats, target_feats):
             '''
@@ -217,29 +267,34 @@ class LatentHead(BaseModule):
             
          
             # KL Part
-            latent_loss, z = self.get_processed_feats(input_feats, None)
+            z = self.get_processed_feats(input_feats, None)
             
-            '''
-            z:
-                output: list -->
-                [
-                    torch.Size([1, 128, 128, 128, 1])
-                    torch.Size([1, 128, 1, 128, 16])
-                    torch.Size([1, 128, 128, 1, 16])
-                ]
-            '''
+            if self.use_tpv_aggregator:
+                '''
+                z:
+                    output: list -->
+                    [
+                        torch.Size([1, 128, 128, 128])
+                        torch.Size([1, 128, 128, 16])
+                        torch.Size([1, 128, 128, 16])
+                    ]
+                '''
+                z = self.get_tpv_aggregator(z)
+                
+                return z
             
-            return z
+            else:
+                '''
+                z:
+                    output: list -->
+                    [
+                        torch.Size([1, 128, 128, 128, 1])
+                        torch.Size([1, 128, 1, 128, 16])
+                        torch.Size([1, 128, 128, 1, 16])
+                    ]
+                '''
+                
+                return z
+            
+            
 
- 
-            weights = self.combine_coeff(voxel_local_feats)
-
-            out_feats = voxel_local_feats * weights[:, 0:1, ...] + z[0] * weights[:, 1:2, ...] + \
-                z[1] * weights[:, 2:3, ...] + z[2] * weights[:, 3:4, ...]
-            '''
-            out_feats:
-                torch.Size([1, 128, 128, 128, 16])
-            '''
-            
-            
-            return out_feats            

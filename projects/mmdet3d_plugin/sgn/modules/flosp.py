@@ -50,6 +50,14 @@ class FLoSP(nn.Module):
         fov_mask = np.asarray(fov_mask)
 
         bs, num_cam, _, _, _ = mlvl_feats[0].shape
+        
+        if num_cam == 1:
+            fov_mask = fov_mask[:, -1, :]
+            fov_mask = fov_mask[:, np.newaxis, :]
+            
+            projected_pix = projected_pix[:, -1, :, :]
+            projected_pix = projected_pix[:, np.newaxis, :, :]
+
         device = mlvl_feats[0].device
 
         projected_pix = torch.from_numpy(projected_pix).flatten(0, 1).long().to(device)

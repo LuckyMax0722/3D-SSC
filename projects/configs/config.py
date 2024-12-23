@@ -18,6 +18,7 @@ CONF.PATH.DATA_DATASETS_MSNET3D_LIDAR = os.path.join(CONF.PATH.DATA_DATASETS, 's
 
 # sub file dir
 CONF.PATH.OUTPUT = os.path.join(CONF.PATH.BASE, 'output')
+CONF.PATH.DEBUG = os.path.join(CONF.PATH.BASE, 'a_debug')
 CONF.PATH.PREPROCESS = os.path.join(CONF.PATH.BASE, 'preprocess')
 CONF.PATH.MOBILESTEREONET = os.path.join(CONF.PATH.PREPROCESS, 'mobilestereonet')
 CONF.PATH.DEPTHANYTHING = os.path.join(CONF.PATH.PREPROCESS, 'depthanythingv2')
@@ -71,6 +72,7 @@ CONF.LATENTNET.USE_V6 = False
 CONF.LATENTNET.V6_swin_pretrain = '/u/home/caoh/projects/MA_Jiachen/SGN/ckpt/swin_tiny_patch4_window7_224.pth'
 CONF.LATENTNET.USE_V6_1 = False
 
+
 if CONF.LATENTNET.USE_V6:
     CONF.LATENTNET.V6_geo_feat_dim = 128
     CONF.LATENTNET.V6_split = [8,8,8]
@@ -104,6 +106,8 @@ CONF.UNCERTAINTY.USE_V1 = False
 # TODO: activate or deactivate TPV
 CONF.TPV = EasyDict()
 CONF.TPV.USE_V1 = False
+CONF.TPV.USE_V2 = False
+CONF.TPV.USE_V3 = True
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()
