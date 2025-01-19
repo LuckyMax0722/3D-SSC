@@ -141,10 +141,9 @@ model = dict(
     ),
     
     latent_head=dict(
-        type='LatentHead',
+        type='LatentHeadV2',
         embed_dims=_dim_,
         spatial_shape=[128,128,16],
-        use_post=CONF.TPV.USE_V2,
         use_tpv_aggregator=CONF.TPV.USE_V3
     ),
     

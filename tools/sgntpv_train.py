@@ -6,7 +6,7 @@
 from __future__ import division
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,6"
+#os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 
 import argparse
 import copy
@@ -21,7 +21,7 @@ from os import path as osp
 
 from mmdet import __version__ as mmdet_version
 from mmdet3d import __version__ as mmdet3d_version
-#from mmdet3d.apis import train_model
+#from mmdet3d.apis import train_modelas
 
 from mmdet3d.datasets import build_dataset
 from mmdet3d.models import build_model
@@ -110,18 +110,21 @@ def main():
     
     args = parse_args()
 
-    args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/tpv/sgn_tpv.py'
+    if CONF.TPV.LatentHeadV2:
+        args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/tpv/sgn_tpv_v2.py'
+    else:
+        args.config = '/u/home/caoh/projects/MA_Jiachen/SGN/projects/configs/tpv/sgn_tpv.py'
 
-    debug = True
+    debug = False
     
     if debug:
         args.work_dir = CONF.PATH.DEBUG
         args.launcher = 'none'
     else:
-        args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_TPV_3_From_0')
+        args.work_dir = os.path.join(CONF.PATH.OUTPUT, 'output_SGN_TPV_5_From_0')
         args.launcher = 'pytorch'
 
-    #args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_SGN_TPV_1_From_0/epoch_25.pth'
+    args.resume_from = '/u/home/caoh/projects/MA_Jiachen/SGN/output/output_SGN_TPV_5_From_0/epoch_19.pth'
     args.deterministic = True
     
 

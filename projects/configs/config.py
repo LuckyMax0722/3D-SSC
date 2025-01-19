@@ -107,7 +107,9 @@ CONF.UNCERTAINTY.USE_V1 = False
 CONF.TPV = EasyDict()
 CONF.TPV.USE_V1 = False
 CONF.TPV.USE_V2 = False
-CONF.TPV.USE_V3 = True
+CONF.TPV.USE_V3 = True  # TPV Aggregator
+
+CONF.TPV.LatentHeadV2 = True
 
 # PVRCNN config
 CONF.PVRCNN = EasyDict()

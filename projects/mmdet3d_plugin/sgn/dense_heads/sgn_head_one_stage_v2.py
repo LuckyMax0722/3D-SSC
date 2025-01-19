@@ -72,10 +72,10 @@ class SGNHeadOneV2(nn.Module):
             
         
         self.mlp_prior = nn.Sequential(
-            nn.Linear(self.embed_dims, self.embed_dims//2),
-            nn.LayerNorm(self.embed_dims//2),
+            nn.Linear(self.embed_dims, self.embed_dims//scale),
+            nn.LayerNorm(self.embed_dims//scale),
             nn.LeakyReLU(),
-            nn.Linear(self.embed_dims//2, self.embed_dims)
+            nn.Linear(self.embed_dims//scale, self.embed_dims)
         )
 
         occ_channel = 8 if pts_header_dict.get('guidance', False) else 0
@@ -169,6 +169,11 @@ class SGNHeadOneV2(nn.Module):
         out["sem_logit"] = sem
         out["coords"] = seed_coords
 
+        if self.nvidia_smi:
+            import subprocess
+            result = subprocess.run(["nvidia-smi"])
+            print(result)
+            return
         # Complete voxel features
         vox_feats = torch.empty((self.bev_h, self.bev_w, self.bev_z, self.embed_dims), device=x3d.device)
         vox_feats_flatten = vox_feats.reshape(-1, self.embed_dims)

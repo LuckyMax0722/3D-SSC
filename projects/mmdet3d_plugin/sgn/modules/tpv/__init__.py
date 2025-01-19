@@ -5,3 +5,4 @@ from .tpvformer_layer import TPVFormerLayer
 from .depth_cross_attention import DepthCrossAttention
 from .AutoEncoderGroupSkip import AutoEncoderGroupSkipV2
 from .latent_head import LatentHead
+from .latent_head_v2 import LatentHeadV2
